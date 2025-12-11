@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<!-- 
+    IMAGE REVEAL BEANO v1
+    - CORE: Complete rewrite. Removed NFL Logic.
+    - ENGINE: Canvas-based image compressor (to allow MQTT transmission).
+    - UI: 5x5 Grid Overlay system.
+    - FEATURE: Tile 23 is a Pyramid/Eye.
+-->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>IMAGE BEANO v1</title>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=Titan+One&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg-color: #1e1b4b;
+            --accent: #4ade80;
+            --tile-color: #334155;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0; padding: 0;
+            background: var(--bg-color);
+            color: white;
+            font-family: 'Chakra Petch', sans-serif;
+            overflow-x: hidden;
+            display: flex; flex-direction: column; align-items: center;
+            min-height: 100vh;
+        }
+
+        /* --- SCREENS --- */
+        .screen { width: 100%; max-width: 500px; padding: 20px; display: none; }
+        .screen.active { display: block; animation: fadeUp 0.3s ease-out; }
+        @keyframes fadeUp { from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);} }
+
+        h1 { font-family: 'Titan One', cursive; font-size: 3rem; margin: 0; text-align: center; color: #fff; text-shadow: 0 4px 0 #000; }
+        .subtitle { text-align: center; opacity: 0.7; margin-bottom: 20px; font-size: 0.9rem; }
+
+        /* --- FORMS --- */
+        .card-panel {
+            background: white; color: #1e293b;
+            padding: 25px; border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 4px solid #cbd5e1;
+        }
+
+        label { display: block; font-weight: bold; margin-bottom: 5px; text-transform: uppercase; font-size: 0.75rem; color: #64748b; letter-spacing: 1px; }
+        input[type="text"], input[type="file"] {
+            width: 100%; padding: 12px; margin-bottom: 15px;
+            border: 2px solid #e2e8f0; border-radius: 8px;
+            font-size: 1.1rem; font-family: 'Chakra Petch', sans-serif;
+            outline: none; background: #f8fafc;
+        }
+        input:focus { border-color: var(--accent); }
+
+        .big-btn {
+            width: 100%; padding: 15px; font-size: 1.5rem;
+            font-family: 'Titan One', cursive;
+            border: none; border-radius: 12px; cursor: pointer;
+            transition: transform 0.1s; margin-top: 10px;
+            background: var(--accent); color: #064e3b;
+            box-shadow: 0 4px 0 #15803d;
+        }
+        .big-btn:active { transform: translateY(4px); box-shadow: none; }
+        .big-btn:disabled { background: #cbd5e1; color: #94a3b8; box-shadow: none; cursor: not-allowed; }
+
+        /* --- PREVIEW --- */
+        #img-preview-container {
+            width: 200px; height: 200px; margin: 0 auto 15px auto;
+            background: #333; border-radius: 12px; overflow: hidden;
+            display: none; border: 4px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+        #img-preview { width: 100%; height: 100%; object-fit: cover; }
+
+        /* --- GAME BOARD --- */
+        #game-board-container {
+            width: 100%; aspect-ratio: 1/1;
+            position: relative;
+            background: #000;
+            border: 4px solid #fff;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            max-width: 400px; margin: 0 auto;
+        }
+
+        /* The Hidden Image Layer */
+        #target-image {
+            width: 100%; height: 100%;
+            object-fit: cover; /* Center crop magic */
+            position: absolute; inset: 0; z-index: 1;
+        }
+
+        /* The Grid Overlay Layer */
+        #grid-overlay {
+            position: absolute; inset: 0; z-index: 2;
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            grid-template-rows: repeat(5, 1fr);
+            gap: 1px; background: rgba(0,0,0,0.5);
+        }
+
+        .tile {
+            background: var(--tile-color);
+            color: #94a3b8;
+            display: flex; align-items: center; justify-content: center;
+            font-family: 'Titan One'; font-size: 1.5rem;
+            cursor: pointer;
+            transition: opacity 0.5s, transform 0.2s;
+            user-select: none;
+            position: relative;
+        }
+
+        .tile.removed {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* --- TILE 23 (THE EYE) --- */
+        .tile[data-num="23"] {
+            background: transparent; /* See through container */
+        }
+        .tile[data-num="23"]::before {
+            content: '';
+            position: absolute;
+            width: 80%; height: 80%;
+            background: #fbbf24; /* Gold */
+            clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+            z-index: 1;
+        }
+        .tile[data-num="23"] span {
+            position: relative; z-index: 2;
+            color: #000; font-size: 1rem;
+            margin-top: 15px; /* Push down into pyramid base */
+        }
+
+        /* --- INFO BAR --- */
+        #game-info {
+            display: flex; justify-content: space-between; align-items: center;
+            background: white; color: #333;
+            padding: 10px 20px; border-radius: 50px;
+            margin-bottom: 20px; width: 100%; max-width: 400px;
+            font-weight: bold; border: 2px solid #fff;
+        }
+        .cat-tag { background: #3b82f6; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; text-transform: uppercase; }
+
+    </style>
+</head>
+<body>
+
+    <!-- SCREEN 1: LOBBY -->
+    <div id="screen-lobby" class="screen active">
+        <h1>REVEAL!</h1>
+        <div class="subtitle">v20.0 IMAGE EDITION</div>
+
+        <div class="card-panel">
+            <!-- HOST / JOIN TABS -->
+            <div style="display:flex; gap:10px; margin-bottom:20px;">
+                <button id="tab-host" class="big-btn" style="font-size:1rem; margin:0;" onclick="setMode('host')">I'M HOSTING</button>
+                <button id="tab-join" class="big-btn" style="font-size:1rem; margin:0; background:#cbd5e1; color:#333;" onclick="setMode('join')">I'M JOINING</button>
+            </div>
+
+            <!-- HOST INPUTS -->
+            <div id="host-inputs">
+                <div class="control-group">
+                    <label>Game Host Name</label>
+                    <input type="text" id="host-name" placeholder="YOUR NAME">
+                </div>
+
+                <div class="control-group">
+                    <label>Secret Category</label>
+                    <input type="text" id="game-cat" placeholder="e.g. 80s Movies">
+                </div>
+
+                <div class="control-group">
+                    <label>Secret Answer</label>
+                    <input type="text" id="game-answer" placeholder="e.g. The Terminator">
+                </div>
+
+                <div class="control-group">
+                    <label>Upload Image (Square is best)</label>
+                    <input type="file" id="img-upload" accept="image/*" onchange="processImage()">
+                </div>
+
+                <!-- PREVIEW -->
+                <div id="img-preview-container">
+                    <img id="img-preview" src="">
+                </div>
+            </div>
+
+            <!-- JOIN INPUTS -->
+            <div id="join-inputs" style="display:none;">
+                <div class="control-group">
+                    <label>Room Code</label>
+                    <input type="text" id="join-code" placeholder="4 LETTERS" style="text-transform:uppercase; text-align:center; letter-spacing: 5px; font-size:1.5rem;">
+                </div>
+                <div class="control-group">
+                    <label>Your Name</label>
+                    <input type="text" id="player-name" placeholder="YOUR NAME">
+                </div>
+            </div>
+
+            <button id="start-btn" class="big-btn" disabled onclick="go()">START</button>
+        </div>
+    </div>
+
+    <!-- SCREEN 2: GAME -->
+    <div id="screen-game" class="screen">
+        <div id="game-info">
+            <span id="display-cat" class="cat-tag">CATEGORY</span>
+            <span id="display-code">CODE: ????</span>
+        </div>
+
+        <div id="game-board-container">
+            <img id="target-image" src=""> <!-- The hidden image -->
+            <div id="grid-overlay"></div>  <!-- The tiles -->
+        </div>
+
+        <div style="margin-top:20px; text-align:center; color:#94a3b8;">
+            <p>Waiting for Host to call numbers...</p>
+        </div>
+    </div>
+
+<script>
+    // --- STATE ---
+    let isHost = true;
+    let myName = "";
+    let roomCode = "";
+    let gameImageBase64 = null; // Stores the compressed image
+    let client;
+    const BROKER = 'wss://broker.emqx.io:8084/mqtt';
+    const TOPIC_PRE = 'img_beano_v20';
+
+    // --- SETUP LOGIC ---
+    function setMode(mode) {
+        isHost = (mode === 'host');
+        document.getElementById('tab-host').style.background = isHost ? '#4ade80' : '#cbd5e1';
+        document.getElementById('tab-join').style.background = !isHost ? '#4ade80' : '#cbd5e1';
+        
+        document.getElementById('host-inputs').style.display = isHost ? 'block' : 'none';
+        document.getElementById('join-inputs').style.display = !isHost ? 'block' : 'none';
+        
+        checkReady();
+    }
+
+    // IMAGE COMPRESSOR (Critical for MQTT)
+    function processImage() {
+        const file = document.getElementById('img-upload').files[0];
+        if(!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = new Image();
+            img.src = e.target.result;
+            img.onload = function() {
+                // Resize logic
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const MAX_SIZE = 600; // Limit to 600px to save bandwidth
+                
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                    if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
+                } else {
+                    if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // Compress to JPEG 70%
+                gameImageBase64 = canvas.toDataURL('image/jpeg', 0.7);
+                
+                // Show Preview
+                document.getElementById('img-preview').src = gameImageBase64;
+                document.getElementById('img-preview-container').style.display = 'block';
+                checkReady();
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function checkReady() {
+        const btn = document.getElementById('start-btn');
+        if (isHost) {
+            const hName = document.getElementById('host-name').value;
+            const cat = document.getElementById('game-cat').value;
+            const ans = document.getElementById('game-answer').value;
+            btn.disabled = !(hName && cat && ans && gameImageBase64);
+            btn.innerText = "CREATE GAME";
+        } else {
+            const jName = document.getElementById('player-name').value;
+            const code = document.getElementById('join-code').value;
+            btn.disabled = !(jName && code.length === 4);
+            btn.innerText = "JOIN GAME";
+        }
+    }
+
+    // Add listeners for validation
+    document.querySelectorAll('input').forEach(i => i.addEventListener('keyup', checkReady));
+
+    // --- GAME START ---
+    function go() {
+        if(isHost) {
+            myName = document.getElementById('host-name').value;
+            roomCode = Math.random().toString(36).substr(2,4).toUpperCase();
+        } else {
+            myName = document.getElementById('player-name').value;
+            roomCode = document.getElementById('join-code').value.toUpperCase();
+        }
+
+        // Switch Screens
+        document.getElementById('screen-lobby').classList.remove('active');
+        document.getElementById('screen-game').classList.add('active');
+        
+        document.getElementById('display-code').innerText = "CODE: " + roomCode;
+        
+        // Host renders immediately
+        if(isHost) {
+            let cat = document.getElementById('game-cat').value.toUpperCase();
+            document.getElementById('display-cat').innerText = cat;
+            document.getElementById('target-image').src = gameImageBase64;
+        }
+
+        buildGrid();
+        connectMQTT();
+    }
+
+    function buildGrid() {
+        const grid = document.getElementById('grid-overlay');
+        grid.innerHTML = '';
+        
+        // Create 1-25 tiles (Shuffled positions logic to come in Phase 2)
+        // For Phase 1, just standard order
+        for(let i=1; i<=25; i++) {
+            let div = document.createElement('div');
+            div.className = 'tile';
+            div.dataset.num = i;
+            div.innerHTML = `<span>${i}</span>`;
+            
+            // Temporary click to test removing tiles
+            div.onclick = function() {
+                this.classList.add('removed');
+            };
+            
+            grid.appendChild(div);
+        }
+    }
+
+    // --- NETWORK ---
+    function connectMQTT() {
+        client = mqtt.connect(BROKER);
+        const t = `${TOPIC_PRE}/${roomCode}`;
+        
+        client.on('connect', () => {
+            client.subscribe(t);
+            if(isHost) {
+                // Host sends INIT data repeatedly so late joiners catch up
+                setInterval(() => {
+                    const pl = {
+                        type: 'INIT',
+                        img: gameImageBase64,
+                        cat: document.getElementById('game-cat').value.toUpperCase()
+                    };
+                    client.publish(t, JSON.stringify(pl));
+                }, 2000);
+            }
+        });
+
+        client.on('message', (topic, msg) => {
+            try {
+                const data = JSON.parse(msg.toString());
+                // Guest receives Image and Category
+                if(!isHost && data.type === 'INIT') {
+                    document.getElementById('target-image').src = data.img;
+                    document.getElementById('display-cat').innerText = data.cat;
+                }
+            } catch(e) { console.log(e); }
+        });
+    }
+
+</script>
+</body>
+</html>
