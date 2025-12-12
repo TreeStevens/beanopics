@@ -1,21 +1,25 @@
 <!DOCTYPE html>
 <html lang="en">
 <!-- 
-    REVEAL! v4.2
-    - LAYOUT: "Game Stack" architecture. Header, Jumbotron, Card, Controls all locked to same max-width.
-    - VISUAL: Jumbotron is split 50/50. Left is History Grid, Right is Current Call. Both Square.
-    - CONTROLS: Players get split GUESS/PASS buttons. Guess swaps to input inline.
-    - LOGIC: Retains v4.1 connectivity and state handling.
+    REVEAL! v4.3
+    CHANGELOG
+    [1] FIXED: Screen IDs + navigation (screen-game) and duplicate #game-screen.
+    [2] ADDED: Centralized MQTT connectMQTT(isHostRole) + unified handleMsg.
+    [3] ADDED: Levenshtein fuzzy matching with 3-tier thresholds (WIN / CLOSE / WRONG).
+    [4] ADDED: Private toast system for "Close!" hints (player-only).
+    [5] ADDED: Sequential wrong guesses list (no public percentages).
+    [6] ADDED: Basic host-disconnect detection via missed STATE heartbeats.
+    [7] TODO (later): Chat implementation, richer game-over overlay, advanced turn-order rules.
 -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>REVEAL! v4.2</title>
+    <title>REVEAL! v4.3</title>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
 
     <style>
-        /* --- CORE VARS --- */
+        /* [A] CORE VARS */
         :root {
             --bg-color: #4c1d95;
             --panel-bg: rgba(0,0,0,0.25);
@@ -25,7 +29,7 @@
             --font-body: 'Nunito', sans-serif;
             --tile-off: #1e293b;
             --tile-on: #fbbf24;
-            --card-max-width: 450px; /* MASTER WIDTH VARIABLE */
+            --card-max-width: 450px;
         }
 
         * { box-sizing: border-box; }
@@ -37,7 +41,7 @@
             transition: background 0.3s ease;
         }
 
-        /* SCREENS */
+        /* [B] SCREENS & PANELS */
         .screen {
             position: absolute; inset: 0; 
             display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -74,11 +78,10 @@
         .big-btn:disabled { background: #64748b; cursor: not-allowed; box-shadow: none; opacity: 0.7; }
         .big-btn.secondary { background: rgba(255,255,255,0.2); color: white; }
 
-        /* --- 3-COLUMN GAME GRID --- */
-        #game-screen { display: grid; grid-template-rows: 1fr 60px; height: 100%; width: 100%; }
-        #main-area { display: grid; grid-template-columns: 200px 1fr 200px; overflow: hidden; }
+        /* [C] GAME LAYOUT */
+        #screen-game { display: grid; grid-template-rows: 1fr 60px; height: 100%; width: 100%; padding: 0; background: var(--bg-color); }
+        #game-layout { display: grid; grid-template-columns: 200px 1fr 200px; overflow: hidden; }
 
-        /* SIDEBARS */
         .sidebar {
             background: var(--panel-bg);
             border-left: 1px solid rgba(255,255,255,0.05);
@@ -89,21 +92,19 @@
         .sb-item { font-size: 0.85rem; padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); word-break: break-word; }
         .sb-item.active-turn { background: rgba(255,255,255,0.2); border-left: 4px solid var(--accent); animation: pulse 1s infinite; }
 
-        /* --- CENTER STAGE (THE STACK) --- */
         #center-stage {
             display: flex; flex-direction: column; 
             padding: 10px; overflow-y: auto; 
-            align-items: center; /* Horizontally center everything */
+            align-items: center;
         }
-        
-        /* The Wrapper that locks everything to the same width */
+
         .game-stack {
             width: 100%;
             max-width: var(--card-max-width);
             display: flex; flex-direction: column; gap: 8px;
         }
 
-        /* 1. HEADER ROW */
+        /* HEADER ROW */
         #header-row {
             display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 4px;
             background: var(--panel-bg); padding: 5px; border-radius: 6px;
@@ -111,21 +112,20 @@
         .info-cell { text-align: center; overflow: hidden; }
         .info-lbl { font-size: 0.5rem; opacity: 0.6; font-weight: 900; text-transform: uppercase; }
         .info-val { font-weight: bold; font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        #room-code-display { font-family: 'Courier New', monospace; cursor: pointer; background: rgba(255,255,255,0.1); border-radius: 4px; }
+        #inf-code { font-family: 'Courier New', monospace; cursor: pointer; background: rgba(255,255,255,0.1); border-radius: 4px; }
 
-        /* 2. JUMBOTRON (50/50 Split) */
+        /* JUMBOTRON */
         #jumbotron {
             display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
-            height: 160px; /* Fixed height for squares */
+            height: 160px;
         }
-        /* Mini Grid (History) */
         #mini-grid-container {
             background: black; border: 2px solid white; border-radius: 8px;
             display: flex; align-items: center; justify-content: center; padding: 5px;
         }
         #mini-grid {
             display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px;
-            width: 100%; aspect-ratio: 1/1; /* Square inside the box */
+            width: 100%; aspect-ratio: 1/1;
         }
         .trk-cell {
             background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.3);
@@ -134,7 +134,6 @@
         }
         .trk-cell.active { background: var(--accent); color: black; box-shadow: 0 0 5px var(--accent); }
 
-        /* Call Box (Next Number) */
         #call-box {
             background: black; border: 2px solid white; border-radius: 8px;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -142,8 +141,7 @@
         }
         .call-lbl { position: absolute; top: 5px; font-size: 0.7rem; opacity: 0.5; text-transform: uppercase; letter-spacing: 1px; }
         .call-val { font-family: var(--font-head); font-size: 5rem; color: white; animation: pop 0.2s; line-height: 1; }
-        
-        /* Pyramid (Only for #23) */
+
         .pyramid {
             width: 0; height: 0; 
             border-left: 45px solid transparent; border-right: 45px solid transparent; border-bottom: 70px solid #fbbf24;
@@ -154,9 +152,9 @@
             color: black; font-weight: 900; font-family: var(--font-head); font-size: 1.5rem;
         }
 
-        /* 3. CARD (The Image) */
+        /* CARD */
         #card-wrapper {
-            width: 100%; aspect-ratio: 1/1; /* Perfect Square */
+            width: 100%; aspect-ratio: 1/1;
             position: relative; background: #000;
             border: 4px solid white; border-radius: 8px;
             box-shadow: 0 10px 40px rgba(0,0,0,0.4);
@@ -175,14 +173,13 @@
         }
         .tile.locked { cursor: not-allowed; opacity: 1 !important; }
         .tile.revealed { opacity: 0; pointer-events: none; }
-        .tile[data-n="23"] { color: transparent; } /* Hidden number */
+        .tile[data-n="23"] { color: transparent; }
 
-        /* 4. CONTROLS */
+        /* CONTROLS */
         #controls-bar {
-            width: 100%; min-height: 60px; display: flex;
+            width: 100%; min-height: 60px; display: flex; align-items: center;
         }
-        
-        /* Host Layout: 1 Big Button */
+
         #host-btns { width: 100%; display: none; }
         .btn-call { 
             width: 100%; height: 60px; border-radius: 8px; border: none;
@@ -190,8 +187,7 @@
             cursor: pointer; box-shadow: 0 4px 0 #999; 
         }
         .btn-call:active { transform: translateY(4px); box-shadow: none; }
-        
-        /* Player Layout: 2 Buttons (50/50) */
+
         #player-btns { width: 100%; display: none; gap: 10px; }
         .ctrl-btn {
             flex: 1; height: 60px; border-radius: 8px; border: none;
@@ -202,14 +198,17 @@
         .btn-guess { background: var(--accent); color: black; }
         .btn-pass { background: #ef4444; color: white; }
 
-        /* Guess Interface (Swaps in) */
         #guess-interface { display: none; width: 100%; gap: 5px; height: 60px; }
         #guess-field { 
             flex: 1; height: 100%; padding: 0 15px; border-radius: 8px; border: none; 
             font-size: 1.2rem; text-align: center; outline: none; background: white; color: black;
         }
 
-        /* 5. FOOTER (Chat) */
+        #waiting-msg {
+            flex: 1; text-align: center; font-size: 0.9rem; color: rgba(255,255,255,0.7);
+        }
+
+        /* CHAT BAR (placeholder, not wired yet) */
         #chat-bar {
             background: rgba(0,0,0,0.4); padding: 10px;
             display: flex; gap: 10px; align-items: center; border-top: 1px solid rgba(255,255,255,0.1);
@@ -217,22 +216,37 @@
         #chat-input { flex: 1; padding: 10px; border-radius: 8px; border: none; font-family: var(--font-body); outline: none; margin: 0; }
         #chat-send { width: 60px; border-radius: 8px; border: none; background: #3b82f6; color: white; font-weight: bold; cursor: pointer; }
 
-        /* Floating Button for Mobile */
         #chat-btn-float {
             position: fixed; bottom: 80px; right: 20px; width: 50px; height: 50px;
             background: white; border-radius: 50%; font-size: 1.5rem; border: none;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3); z-index: 50; display: none;
         }
-        #chat-btn-float.shake { animation: shake 0.5s infinite; background: #fbbf24; }
 
-        /* UTILS */
+        /* PRIVATE TOAST */
+        #toast {
+            position: fixed;
+            bottom: 90px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15,23,42,0.95);
+            color: #fbbf24;
+            padding: 10px 16px;
+            border-radius: 999px;
+            font-size: 0.9rem;
+            font-weight: 800;
+            z-index: 999;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+        #toast.show { opacity: 1; }
+
         .hidden { display: none !important; }
         @keyframes pop { 0%{transform:scale(0);} 80%{transform:scale(1.1);} 100%{transform:scale(1);} }
-        @keyframes shake { 0% { transform: translate(1px, 1px) rotate(0deg); } 50% { transform: translate(-1px, 2px) rotate(-1deg); } 100% { transform: translate(1px, -2px) rotate(-1deg); } }
         @keyframes pulse { 0%{border-color:var(--accent);} 50%{border-color:white;} 100%{border-color:var(--accent);} }
 
         @media (max-width: 800px) {
-            #main-area { grid-template-columns: 1fr; }
+            #game-layout { grid-template-columns: 1fr; }
             .sidebar { display: none; } 
             #chat-bar { display: none; }
             #chat-btn-float { display: block; }
@@ -241,10 +255,10 @@
 </head>
 <body>
 
-    <!-- SCREEN 1: LOBBY -->
+    <!-- [S1] LOBBY -->
     <div id="screen-lobby" class="screen active">
         <div class="card-panel">
-            <h1>REVEAL! v4.2</h1>
+            <h1>REVEAL! v4.3</h1>
             <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
                 <button class="big-btn" onclick="showHostSetup()">HOST GAME</button>
                 <div style="opacity:0.5; margin:5px 0;">OR</div>
@@ -253,7 +267,7 @@
         </div>
     </div>
 
-    <!-- SCREEN 2: HOST SETUP -->
+    <!-- [S2] HOST SETUP -->
     <div id="screen-host-setup" class="screen">
         <div class="card-panel">
             <h2>GAME SETUP</h2>
@@ -261,13 +275,12 @@
             <div class="control-group"><label>CATEGORY</label><input type="text" id="game-cat" placeholder="e.g. 80s Movies"></div>
             <div class="control-group"><label>ANSWER</label><input type="text" id="game-ans" placeholder="Secret Answer"></div>
             <div class="control-group"><label>IMAGE</label><input type="file" id="img-upload" accept="image/*" onchange="processImage()"></div>
-            
             <button class="big-btn" id="btn-create" disabled onclick="createGame()">CREATE ROOM</button>
             <button class="big-btn secondary" onclick="goTo('screen-lobby')" style="margin-top:15px; font-size:1rem;">BACK</button>
         </div>
     </div>
 
-    <!-- SCREEN 3: JOIN CODE (Step 1) -->
+    <!-- [S3] JOIN: ENTER CODE -->
     <div id="screen-join-code" class="screen">
         <div class="card-panel">
             <h2>ENTER CODE</h2>
@@ -277,7 +290,7 @@
         </div>
     </div>
 
-    <!-- SCREEN 4: JOIN SETUP (Step 2 - Wait for Host Handshake) -->
+    <!-- [S4] JOIN SETUP -->
     <div id="screen-join-setup" class="screen">
         <div class="card-panel">
             <h2 id="join-room-disp">ROOM FOUND</h2>
@@ -287,25 +300,25 @@
         </div>
     </div>
 
-    <!-- SCREEN 5: GAME BOARD -->
-    <div id="game-screen" class="screen" style="padding:0; background:var(--bg-color); display:none;">
-        <div id="game-screen">
-            
-            <!-- LEFT -->
+    <!-- [S5] GAME BOARD -->
+    <div id="screen-game" class="screen" style="display:none;">
+        <div id="game-layout">
+
+            <!-- LEFT SIDEBAR: PLAYERS -->
             <div class="sidebar" id="sb-players">
                 <div class="sb-head">PLAYERS</div>
                 <div id="list-players"></div>
             </div>
 
-            <!-- CENTER -->
+            <!-- CENTER: STACK -->
             <div id="center-stage">
                 <div class="game-stack">
-                    
-                    <!-- 1. HEADER -->
+
+                    <!-- HEADER -->
                     <div id="header-row">
                         <div class="info-cell"><div class="info-lbl">HOST</div><div class="info-val" id="inf-host">?</div></div>
                         <div class="info-cell"><div class="info-lbl">CAT</div><div class="info-val" id="inf-cat">?</div></div>
-                        <div class="info-cell"><div class="info-lbl">CODE</div><div class="info-val" id="inf-code" onclick="copyCode()" style="cursor:pointer;">?</div></div>
+                        <div class="info-cell"><div class="info-lbl">CODE</div><div class="info-val" id="inf-code" onclick="copyCode()">?</div></div>
                         <div class="info-cell">
                             <div class="info-lbl">STYLE</div>
                             <select onchange="applySkin(this.value)" style="padding:0; margin:0; height:20px; font-size:0.8rem; background:transparent; color:white;">
@@ -315,12 +328,10 @@
                         </div>
                     </div>
 
-                    <!-- 2. JUMBOTRON -->
+                    <!-- JUMBOTRON -->
                     <div id="jumbotron">
                         <div id="mini-grid-container">
-                            <div id="mini-grid">
-                                <!-- JS fills 1-25 -->
-                            </div>
+                            <div id="mini-grid"></div>
                         </div>
                         <div id="call-box">
                             <div class="call-lbl">NEXT NUMBER</div>
@@ -328,29 +339,22 @@
                         </div>
                     </div>
 
-                    <!-- 3. CARD -->
+                    <!-- CARD -->
                     <div id="card-wrapper">
                         <img id="target-img" src="">
                         <div id="tile-grid"></div>
                     </div>
 
-                    <!-- 4. CONTROLS -->
+                    <!-- CONTROLS -->
                     <div id="controls-bar">
-                        <!-- Host View -->
                         <div id="host-btns">
-                            <button class="btn-call" onclick="hostCall()">CALL NEXT NUMBER</button>
+                            <button class="btn-call" id="btn-call" onclick="hostCall()">CALL NEXT NUMBER</button>
                         </div>
-                        
-                        <!-- Player View -->
                         <div id="player-btns">
-                             <button class="ctrl-btn btn-guess" onclick="showGuess()">GUESS</button>
-                             <button class="ctrl-btn btn-pass" onclick="passTurn()">PASS</button>
+                            <button class="ctrl-btn btn-guess" onclick="showGuess()">GUESS</button>
+                            <button class="ctrl-btn btn-pass" onclick="passTurn()">PASS</button>
                         </div>
-                        <div id="waiting-msg" style="display:none; color:rgba(255,255,255,0.7); text-align:center; padding:10px;">
-                            Waiting for your turn...
-                        </div>
-
-                        <!-- Guess Input -->
+                        <div id="waiting-msg" style="display:none;">Listen for number...</div>
                         <div id="guess-interface">
                             <input type="text" id="guess-field" placeholder="ANSWER...">
                             <button class="ctrl-btn btn-guess" style="width:100px;" onclick="sendGuess()">SEND</button>
@@ -361,7 +365,7 @@
                 </div>
             </div>
 
-            <!-- RIGHT -->
+            <!-- RIGHT SIDEBAR: WRONG GUESSES -->
             <div class="sidebar" id="sb-guesses">
                 <div class="sb-head">WRONG GUESSES</div>
                 <div id="list-guesses"></div>
@@ -369,199 +373,515 @@
 
         </div>
 
-        <!-- FOOTER: CHAT -->
+        <!-- FOOTER: CHAT (placeholder) -->
         <div id="chat-bar">
             <input type="text" id="chat-input" placeholder="Chat...">
-            <button id="chat-send" onclick="sendChat()">SEND</button>
+            <button id="chat-send" onclick="alert('Chat coming in later version')">SEND</button>
         </div>
         <button id="chat-btn-float" onclick="alert('Chat drawer...')">💬</button>
     </div>
 
+    <!-- PRIVATE TOAST -->
+    <div id="toast"></div>
+
 <script>
-    // --- SKINS ---
-    const SKINS = { vibrant: {bg:'#4c1d95', acc:'#2dd4bf', text:'#fff', tile:'#1e293b'}, dark: {bg:'#18181b', acc:'#facc15', text:'#f4f4f5', tile:'#27272a'} };
-    function applySkin(k) { const s=SKINS[k]||SKINS.vibrant; const r=document.documentElement.style; r.setProperty('--bg-color',s.bg); r.setProperty('--accent',s.acc); r.setProperty('--text-main',s.text); r.setProperty('--tile-off',s.tile); }
+    // [1] SKINS
+    const SKINS = {
+        vibrant: {bg:'#4c1d95', acc:'#2dd4bf', text:'#fff', tile:'#1e293b'},
+        dark: {bg:'#18181b', acc:'#facc15', text:'#f4f4f5', tile:'#27272a'}
+    };
+    function applySkin(k) {
+        const s = SKINS[k] || SKINS.vibrant;
+        const r = document.documentElement.style;
+        r.setProperty('--bg-color', s.bg);
+        r.setProperty('--accent', s.acc);
+        r.setProperty('--text-main', s.text);
+        r.setProperty('--tile-off', s.tile);
+    }
 
-    // --- STATE ---
-    let myName, roomCode, isHost;
-    let client, gameImg = null;
-    let gameState = { host:"", cat:"", ans:"", players:[], guesses:[], revealed:[], turnOrder:[], turnIdx:0, status:'WAITING' };
+    // [2] STATE & CONSTANTS
+    let myName = '';
+    let roomCode = '';
+    let isHost = false;
+    let client = null;
+    let gameImg = null;
+
+    let gameState = {
+        host: "",
+        cat: "",
+        ans: "",
+        players: [],
+        guesses: [],        // { from, txt, pct }
+        revealed: [],
+        turnOrder: [],
+        turnIdx: 0,
+        status: 'WAITING',  // WAITING | GUESSING | WIN | DISCONNECTED
+        winner: null
+    };
+
     const BROKER = 'wss://broker.emqx.io:8084/mqtt';
-    const TOPIC_PRE = 'reveal_v4_2';
+    const TOPIC_PRE = 'reveal_v4_3';
 
-    // --- NAV ---
-    function goTo(id) { 
-        document.querySelectorAll('.screen').forEach(s => { s.classList.remove('active'); if(id==='screen-game') s.style.display='none'; });
-        const el = document.getElementById(id); el.classList.add('active'); if(id==='screen-game') el.style.display='grid';
+    let lastStateTime = Date.now();
+    let hostDisconnected = false;
+
+    // [3] TEXT SANITIZATION + LEVENSHTEIN
+    function sanitizeText(str) {
+        if (!str) return '';
+        return str.replace(/\s+/g, '').toUpperCase();
+    }
+
+    function levenshtein(a, b) {
+        const m = a.length, n = b.length;
+        if (m === 0) return n;
+        if (n === 0) return m;
+        const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+        for (let i = 0; i <= m; i++) dp[i][0] = i;
+        for (let j = 0; j <= n; j++) dp[0][j] = j;
+        for (let i = 1; i <= m; i++) {
+            for (let j = 1; j <= n; j++) {
+                const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+                dp[i][j] = Math.min(
+                    dp[i - 1][j] + 1,
+                    dp[i][j - 1] + 1,
+                    dp[i - 1][j - 1] + cost
+                );
+            }
+        }
+        return dp[m][n];
+    }
+
+    function similarityPercent(a, b) {
+        const sa = sanitizeText(a);
+        const sb = sanitizeText(b);
+        if (!sa && !sb) return 100;
+        const maxLen = Math.max(sa.length, sb.length);
+        if (maxLen === 0) return 0;
+        const dist = levenshtein(sa, sb);
+        const pct = ((maxLen - dist) / maxLen) * 100;
+        return Math.max(0, Math.min(100, pct));
+    }
+
+    // [4] TOAST HELPER
+    let toastTimer = null;
+    function showToast(msg) {
+        const el = document.getElementById('toast');
+        if (!el) return;
+        el.innerText = msg;
+        el.classList.add('show');
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+            el.classList.remove('show');
+        }, 2500);
+    }
+
+    // [5] NAVIGATION
+    function goTo(id) {
+        document.querySelectorAll('.screen').forEach(s => {
+            s.classList.remove('active');
+            s.style.display = 'none';
+        });
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.add('active');
+        if (id === 'screen-game') {
+            el.style.display = 'grid';
+        } else {
+            el.style.display = 'flex';
+        }
     }
     function showHostSetup() { goTo('screen-host-setup'); }
     function showJoinSetup() { goTo('screen-join-code'); }
 
-    // --- HOST ---
+    // [6] MQTT CONNECT
+    function connectMQTT(isHostRole) {
+        if (client) return; // simple guard to avoid double-connect per tab
+        client = mqtt.connect(BROKER);
+
+        client.on('connect', () => {
+            client.subscribe(`${TOPIC_PRE}/${roomCode}`);
+            if (!isHostRole) {
+                client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type: 'REQ_STATE' }));
+            }
+        });
+
+        client.on('message', (topic, m) => {
+            const msg = JSON.parse(m.toString());
+
+            // Host answers REQ_STATE
+            if (msg.type === 'REQ_STATE' && isHostRole) {
+                client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type: 'STATE', state: gameState, img: gameImg }));
+                return;
+            }
+
+            handleMsg(topic, m);
+        });
+    }
+
+    // [7] HOST: IMAGE + CREATE GAME
     function processImage() {
         const file = document.getElementById('img-upload').files[0];
+        if (!file) return;
         const reader = new FileReader();
         reader.onload = (e) => {
             const img = new Image(); img.src = e.target.result;
             img.onload = () => {
                 const c = document.createElement('canvas'); const ctx = c.getContext('2d');
                 const s = Math.min(img.width, img.height);
-                c.width=600; c.height=600;
-                ctx.drawImage(img, (img.width-s)/2, (img.height-s)/2, s, s, 0, 0, 600, 600);
+                c.width = 600; c.height = 600;
+                ctx.drawImage(img, (img.width - s)/2, (img.height - s)/2, s, s, 0, 0, 600, 600);
                 gameImg = c.toDataURL('image/jpeg', 0.6);
                 document.getElementById('btn-create').disabled = false;
             };
         };
         reader.readAsDataURL(file);
     }
-    
+
     function createGame() {
-        myName = document.getElementById('host-name').value;
+        myName = (document.getElementById('host-name').value || '').trim();
+        if (!myName) { alert('Enter host name'); return; }
         gameState.host = myName;
-        gameState.cat = document.getElementById('game-cat').value;
-        gameState.ans = document.getElementById('game-ans').value;
+        gameState.cat = (document.getElementById('game-cat').value || '').trim();
+        gameState.ans = (document.getElementById('game-ans').value || '').trim();
+        if (!gameState.ans) { alert('Enter an answer'); return; }
         roomCode = Math.random().toString(36).substr(2,4).toUpperCase();
         isHost = true;
+
+        connectMQTT(true);
         startGame();
-        connectMQTT();
-        setInterval(() => client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'STATE', state:gameState, img:gameImg})), 1000);
+
+        // Host heartbeat/state broadcast
+        setInterval(() => {
+            if (client && client.connected) {
+                client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type:'STATE', state: gameState, img: gameImg }));
+            }
+        }, 1000);
     }
 
-    // --- JOIN ---
+    // [8] JOIN: SEARCH + ENTER
     function searchRoom() {
-        roomCode = document.getElementById('join-code').value.toUpperCase();
-        if(roomCode.length!==4) return alert("4 Chars");
-        document.getElementById('btn-search').innerText = "SEARCHING...";
-        client = mqtt.connect(BROKER);
-        client.on('connect', () => {
-            client.subscribe(`${TOPIC_PRE}/${roomCode}`);
-            client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'REQ_STATE'}));
-        });
-        client.on('message', (t, m) => {
-            const msg = JSON.parse(m.toString());
-            if(msg.type === 'STATE' && document.getElementById('screen-join-code').classList.contains('active')) {
-                gameState = msg.state;
-                if(msg.img) gameImg = msg.img;
-                goTo('screen-join-setup');
-                document.getElementById('join-room-disp').innerText = "ROOM: " + roomCode;
-                document.getElementById('join-host-disp').innerText = "HOST: " + gameState.host;
-                document.getElementById('btn-enter').disabled = false;
-            }
-        });
+        roomCode = (document.getElementById('join-code').value || '').toUpperCase();
+        if (roomCode.length !== 4) { alert('Code must be 4 letters/numbers'); return; }
+        document.getElementById('btn-search').innerText = 'SEARCHING...';
+        isHost = false;
+        connectMQTT(false);
     }
 
     function enterGame() {
-        myName = document.getElementById('join-name').value;
-        if(!myName) return;
-        client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'JOIN', name:myName}));
-        isHost = false;
+        myName = (document.getElementById('join-name').value || '').trim();
+        if (!myName) return;
+        if (!client) return;
+        client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type:'JOIN', name: myName }));
         startGame();
     }
 
-    // --- GAME ---
+    // [9] START GAME: BUILD BOARD
     function startGame() {
         goTo('screen-game');
         document.getElementById('inf-code').innerText = roomCode;
-        
+
         // Mini Grid
-        const mg = document.getElementById('mini-grid'); mg.innerHTML = '';
-        for(let i=1; i<=25; i++) {
-            let d = document.createElement('div'); d.className='trk-cell'; d.id='trk-'+i; d.innerText=i; mg.appendChild(d);
+        const mg = document.getElementById('mini-grid');
+        mg.innerHTML = '';
+        for (let i = 1; i <= 25; i++) {
+            const d = document.createElement('div');
+            d.className = 'trk-cell';
+            d.id = 'trk-' + i;
+            d.innerText = i;
+            mg.appendChild(d);
         }
 
-        // Board
-        const grid = document.getElementById('tile-grid'); grid.innerHTML = '';
-        let nums = Array.from({length:25},(_,i)=>i+1);
-        for(let i=nums.length-1; i>0; i--){ const j=Math.floor(Math.random()*(i+1)); [nums[i],nums[j]]=[nums[j],nums[i]]; }
+        // Board Tiles (shuffled numbers)
+        const grid = document.getElementById('tile-grid');
+        grid.innerHTML = '';
+        let nums = Array.from({length:25}, (_,i) => i+1);
+        for (let i = nums.length-1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i+1));
+            [nums[i], nums[j]] = [nums[j], nums[i]];
+        }
         nums.forEach(n => {
-            let t = document.createElement('div');
-            t.className = 'tile'; t.innerText = n; t.dataset.n = n;
-            if(n===23) t.style.color = "transparent"; 
-            t.onclick = () => { if(gameState.revealed.includes(n)) t.classList.add('revealed'); else alert("Locked!"); };
+            const t = document.createElement('div');
+            t.className = 'tile';
+            t.innerText = n;
+            t.dataset.n = n;
+            if (n === 23) t.style.color = 'transparent';
+            t.onclick = () => {
+                const num = parseInt(t.dataset.n);
+                if (gameState.revealed.includes(num)) {
+                    t.classList.add('revealed');
+                } else {
+                    // Optional: Locked feedback; can be toned down later
+                    showToast('That number is still locked.');
+                }
+            };
             grid.appendChild(t);
         });
 
-        if(gameImg) document.getElementById('target-img').src = gameImg;
-        if(isHost) { document.getElementById('host-btns').style.display = 'block'; }
-        if(!isHost) { client.on('message', handleMsg); } else { client.on('message', handleMsg); }
+        if (gameImg) document.getElementById('target-img').src = gameImg;
+
+        if (isHost) {
+            document.getElementById('host-btns').style.display = 'block';
+            document.getElementById('player-btns').style.display = 'none';
+        } else {
+            document.getElementById('host-btns').style.display = 'none';
+        }
+
+        updateUI();
     }
 
+    // [10] MESSAGE HANDLER
     function handleMsg(topic, m) {
         const msg = JSON.parse(m.toString());
-        if(msg.type === 'STATE') { gameState = msg.state; updateUI(); }
-        if(msg.type === 'JOIN' && isHost) {
-            if(!gameState.players.find(p=>p.name===msg.name)) { gameState.players.push({name:msg.name}); }
+
+        // Full state sync
+        if (msg.type === 'STATE') {
+            gameState = msg.state;
+            if (msg.img) gameImg = msg.img;
+            lastStateTime = Date.now();
+
+            if (document.getElementById('screen-join-code').classList.contains('active')) {
+                goTo('screen-join-setup');
+                document.getElementById('join-room-disp').innerText = 'ROOM: ' + roomCode;
+                document.getElementById('join-host-disp').innerText = 'HOST: ' + gameState.host;
+                document.getElementById('btn-enter').disabled = false;
+                return;
+            }
+
+            updateUI();
+            return;
+        }
+
+        // Host: add player
+        if (msg.type === 'JOIN' && isHost) {
+            if (!gameState.players.find(p => p.name === msg.name)) {
+                gameState.players.push({ name: msg.name });
+                sendState();
+            }
+            return;
+        }
+
+        // Host: evaluate guess
+        if (msg.type === 'GUESS' && isHost) {
+            const guessTxt = msg.txt || '';
+            const fromName = msg.from || 'Unknown';
+
+            const pct = similarityPercent(guessTxt, gameState.ans);
+            const pctRounded = Math.round(pct);
+
+            // Track guess in order (public list sees only from + txt)
+            gameState.guesses.push({ from: fromName, txt: guessTxt, pct: pctRounded });
+
+            if (pct >= 90) {
+                // WIN: reveal everything and freeze game
+                gameState.status = 'WIN';
+                gameState.winner = fromName;
+                gameState.revealed = Array.from({ length: 25 }, (_, i) => i + 1);
+                sendState();
+                return;
+            }
+
+            // Advance turn
+            if (gameState.turnOrder.length > 0) {
+                gameState.turnIdx = (gameState.turnIdx + 1) % gameState.turnOrder.length;
+            }
+            gameState.status = 'WAITING';
+
+            // Close! hint: 50–89% → private toast
+            if (pct >= 50 && pct < 90) {
+                client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type: 'HINT', to: fromName, pct: pctRounded }));
+            }
+
+            sendState();
+            return;
+        }
+
+        // Host: PASS → advance turn, keep WAITING
+        if (msg.type === 'PASS' && isHost) {
+            if (gameState.turnOrder.length > 0) {
+                gameState.turnIdx = (gameState.turnIdx + 1) % gameState.turnOrder.length;
+            }
+            gameState.status = 'WAITING';
+            sendState();
+            return;
+        }
+
+        // Client: private hint
+        if (msg.type === 'HINT') {
+            if (msg.to === myName) {
+                showToast(`Close! ${msg.pct}% match`);
+            }
+            return;
         }
     }
 
-    function updateUI() {
-        document.getElementById('inf-host').innerText = gameState.host;
-        document.getElementById('inf-cat').innerText = gameState.cat;
+    // [11] STATE BROADCAST
+    function sendState() {
+        if (!client || !client.connected) return;
+        client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type:'STATE', state: gameState, img: gameImg }));
+    }
 
-        // Tracker
+    // [12] HOST CALL: PICK NEXT NUMBER
+    function hostCall() {
+        if (!isHost) return;
+        if (gameState.status === 'WIN' || gameState.status === 'DISCONNECTED') return;
+
+        let avail = [];
+        for (let i = 1; i <= 25; i++) {
+            if (!gameState.revealed.includes(i)) avail.push(i);
+        }
+        if (avail.length === 0) return;
+
+        const p = avail[Math.floor(Math.random() * avail.length)];
+        gameState.revealed.push(p);
+        gameState.status = 'GUESSING';
+
+        // Simple turn order: static order of join
+        gameState.turnOrder = gameState.players.map(p => p.name);
+        gameState.turnIdx = 0;
+
+        sendState();
+    }
+
+    // [13] PLAYER CONTROLS
+    function showGuess() {
+        document.getElementById('player-btns').style.display = 'none';
+        document.getElementById('guess-interface').style.display = 'flex';
+        document.getElementById('guess-field').value = '';
+        document.getElementById('guess-field').focus();
+    }
+    function cancelGuess() {
+        document.getElementById('guess-interface').style.display = 'none';
+        document.getElementById('player-btns').style.display = 'flex';
+    }
+    function passTurn() {
+        if (!client) return;
+        client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type:'PASS' }));
+    }
+    function sendGuess() {
+        const g = (document.getElementById('guess-field').value || '').trim();
+        if (!g || !client) { cancelGuess(); return; }
+        client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type:'GUESS', from: myName, txt: g }));
+        cancelGuess();
+    }
+
+    // [14] UI UPDATE
+    function updateUI() {
+        document.getElementById('inf-host').innerText = gameState.host || '?';
+        document.getElementById('inf-cat').innerText = gameState.cat || '?';
+
+        // Tracker + last call
         let last = 0;
+        for (let i = 1; i <= 25; i++) {
+            const el = document.getElementById('trk-' + i);
+            if (el) el.classList.remove('active');
+        }
         gameState.revealed.forEach(n => {
-            document.getElementById('trk-'+n).classList.add('active');
+            const el = document.getElementById('trk-' + n);
+            if (el) el.classList.add('active');
             last = n;
         });
 
-        // Jumbotron
         const box = document.getElementById('call-box');
-        if(last === 23) box.innerHTML = '<div class="call-lbl">ILLUMINATI</div><div class="pyramid"></div>';
-        else box.innerHTML = `<div class="call-lbl">CURRENT CALL</div><div class="call-val">${last || '--'}</div>`;
+        if (gameState.status === 'WIN' && gameState.winner) {
+            box.innerHTML = `<div class="call-lbl">WINNER</div><div class="call-val" style="font-size:2rem;">${gameState.winner}</div>`;
+        } else if (last === 23) {
+            box.innerHTML = '<div class="call-lbl">ILLUMINATI</div><div class="pyramid"></div>';
+        } else {
+            const disp = last || '--';
+            box.innerHTML = `<div class="call-lbl">CURRENT CALL</div><div class="call-val">${disp}</div>`;
+        }
 
-        // Local Tile Update (Auto-reveal for Host convenience?)
-        if(isHost) document.querySelectorAll('.tile').forEach(t => { if(gameState.revealed.includes(parseInt(t.dataset.n))) t.classList.add('revealed'); });
+        // Auto mark revealed tiles visually (all clients)
+        document.querySelectorAll('.tile').forEach(t => {
+            const n = parseInt(t.dataset.n);
+            if (gameState.revealed.includes(n)) {
+                t.classList.add('revealed');
+            }
+        });
 
-        // Players & Controls
-        const pl = document.getElementById('list-players'); pl.innerHTML='';
+        // Players list
+        const pl = document.getElementById('list-players');
+        pl.innerHTML = '';
         gameState.players.forEach(p => {
-            let d = document.createElement('div'); d.className='sb-item'; d.innerText = p.name;
-            if(gameState.status==='GUESSING' && gameState.turnOrder[gameState.turnIdx]===p.name) d.classList.add('active-turn');
+            const d = document.createElement('div');
+            d.className = 'sb-item';
+            d.innerText = p.name;
+            if (gameState.status === 'GUESSING' && gameState.turnOrder[gameState.turnIdx] === p.name) {
+                d.classList.add('active-turn');
+            }
             pl.appendChild(d);
         });
 
+        // Wrong guesses (public, no %)
+        const gl = document.getElementById('list-guesses');
+        gl.innerHTML = '';
+        gameState.guesses.forEach(g => {
+            const d = document.createElement('div');
+            d.className = 'sb-item';
+            d.innerText = `${g.from}: "${g.txt}"`;
+            gl.appendChild(d);
+        });
+
+        // Controls state
         const pc = document.getElementById('player-btns');
         const wa = document.getElementById('waiting-msg');
-        
-        if(!isHost) {
-            if(gameState.status === 'GUESSING') {
-                if(gameState.turnOrder[gameState.turnIdx] === myName) {
-                    pc.style.display = 'flex'; wa.style.display = 'none';
+        const gi = document.getElementById('guess-interface');
+        const hb = document.getElementById('host-btns');
+        const callBtn = document.getElementById('btn-call');
+
+        if (hostDisconnected || gameState.status === 'DISCONNECTED') {
+            if (!isHost) {
+                pc.style.display = 'none';
+                gi.style.display = 'none';
+                wa.style.display = 'block';
+                wa.innerText = 'Host disconnected. Game over.';
+            }
+            if (isHost && callBtn) callBtn.disabled = true;
+            return;
+        }
+
+        if (!isHost) {
+            if (gameState.status === 'GUESSING') {
+                if (gameState.turnOrder[gameState.turnIdx] === myName) {
+                    pc.style.display = 'flex';
+                    wa.style.display = 'none';
                 } else {
-                    pc.style.display = 'none'; wa.style.display = 'block'; wa.innerText = `Waiting for ${gameState.turnOrder[gameState.turnIdx]}...`;
+                    pc.style.display = 'none';
+                    gi.style.display = 'none';
+                    wa.style.display = 'block';
+                    wa.innerText = `Waiting for ${gameState.turnOrder[gameState.turnIdx] || 'player'}...`;
                 }
             } else {
-                pc.style.display = 'none'; wa.style.display = 'block'; wa.innerText = "Listen for number...";
+                pc.style.display = 'none';
+                gi.style.display = 'none';
+                wa.style.display = 'block';
+                wa.innerText = 'Listen for number...';
             }
+        } else {
+            // Host: simple enable/disable call button
+            if (callBtn) callBtn.disabled = (gameState.status === 'GUESSING' || gameState.status === 'WIN');
         }
     }
 
-    function hostCall() {
-        let avail = [];
-        for(let i=1; i<=25; i++) if(!gameState.revealed.includes(i)) avail.push(i);
-        if(avail.length>0) {
-            let p = avail[Math.floor(Math.random()*avail.length)];
-            gameState.revealed.push(p);
-            gameState.status = 'GUESSING';
-            // Start turn order logic here if needed or just unlock board
-            gameState.turnOrder = gameState.players.map(p=>p.name);
-            gameState.turnIdx = 0;
-            sendState();
+    // [15] HOST DISCONNECT WATCHDOG (players only)
+    setInterval(() => {
+        if (isHost || hostDisconnected) return;
+        const now = Date.now();
+        if (now - lastStateTime > 15000) { // >15 seconds without STATE
+            hostDisconnected = true;
+            gameState.status = 'DISCONNECTED';
+            showToast('Host disconnected. Game over.');
+            updateUI();
         }
-    }
+    }, 3000);
 
-    function showGuess() { document.getElementById('player-btns').style.display='none'; document.getElementById('guess-interface').style.display='flex'; }
-    function cancelGuess() { document.getElementById('guess-interface').style.display='none'; document.getElementById('player-btns').style.display='flex'; }
-    function passTurn() { client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'PASS'})); }
-    function sendState() { client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'STATE', state:gameState, img:gameImg})); }
-    function sendGuess() {
-        let g = document.getElementById('guess-field').value;
-        if(g) client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'GUESS', from:myName, txt:g}));
-        cancelGuess();
+    // [16] MISC
+    function copyCode() {
+        if (!roomCode) return;
+        navigator.clipboard.writeText(roomCode).then(() => {
+            showToast('Room code copied');
+        });
     }
-    function copyCode() { navigator.clipboard.writeText(roomCode); alert('Copied!'); }
-
 </script>
 </body>
 </html>
