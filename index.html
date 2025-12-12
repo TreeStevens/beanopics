@@ -1,496 +1,256 @@
 <!DOCTYPE html>
 <html lang="en">
 <!-- 
-    IMAGE REVEAL BEANO v3.1
-    - UI FIX: Tile 23 double-text removed (Base text transparent).
-    - UI FIX: Jumbotron redesigned. Big Current Call on right, History on left.
-    - LOGIC: Host Name appears immediately.
-    - VERSION: Reset to 3.x series.
+    REVEAL! v4.0 - THE LAYOUT OVERHAUL
+    - STRUCTURE: 3-Column Grid (Players | Game | Guesses).
+    - JUMBOTRON: Split into Small Tracker Grid + Big Call Box.
+    - LOGIC: Tile 23 is normal on card, but turns into Pyramid in the Call Box.
+    - CONTROLS: "Guess" launches input directly (no confirm).
 -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>REVEAL! v3.1</title>
+    <title>REVEAL! v4.0</title>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
 
     <style>
-        /* 1.1 CSS VARIABLES */
         :root {
-            --bg-color: #4c1d95;
-            --accent: #2dd4bf;
-            --text-color: #ffffff;
-            --tile-color: #1e293b;
+            --bg-color: #1e1b4b;
+            --panel-bg: rgba(0,0,0,0.3);
+            --accent: #facc15; /* Gold */
+            --text-main: #fff;
             --font-head: 'Fredoka One', cursive;
             --font-body: 'Nunito', sans-serif;
+            --tile-off: #334155;
+            --tile-on: #22c55e;
         }
+
         * { box-sizing: border-box; }
-        body {
-            margin: 0; padding: 0;
-            background: var(--bg-color); color: var(--text-color);
+        body { 
+            margin: 0; padding: 0; height: 100vh; width: 100vw;
+            background: var(--bg-color); color: var(--text-main);
             font-family: var(--font-body);
-            overflow: hidden; height: 100vh; display: flex; flex-direction: column;
-            transition: background 0.3s ease;
-        }
-
-        /* 1.2 COMMON UI */
-        .screen {
-            position: absolute; inset: 0; padding: 10px;
-            display: flex; flex-direction: column; align-items: center;
-            overflow-y: auto; transform: translateX(100%); transition: transform 0.3s ease;
-        }
-        .screen.active { transform: translateX(0); }
-        
-        .card {
-            background: rgba(255,255,255,0.1); backdrop-filter: blur(10px);
-            padding: 20px; border-radius: 20px; width: 100%; max-width: 400px;
-            border: 2px solid rgba(255,255,255,0.2); text-align: center;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3); margin: auto;
-        }
-
-        /* 1.3 CONTROLS */
-        .big-btn {
-            width: 100%; padding: 12px; border-radius: 12px; border: none;
-            font-family: var(--font-head); font-size: 1.2rem; cursor: pointer;
-            background: var(--accent); color: #000;
-            box-shadow: 0 4px 0 rgba(0,0,0,0.2); margin-top: 10px;
-        }
-        .big-btn:active { transform: translateY(4px); box-shadow: none; }
-        .big-btn.secondary { background: rgba(255,255,255,0.2); color: white; }
-        
-        input, select {
-            width: 100%; padding: 12px; border-radius: 10px; border: none;
-            font-family: var(--font-body); font-weight: 800; font-size: 1rem;
-            background: #f8fafc; color: #1e293b; outline: none; margin-bottom: 10px;
-            text-align: left;
-        }
-        .code-input { font-family: 'Courier New', monospace; letter-spacing: 5px; text-align: center; text-transform: uppercase; font-weight: 900; font-size: 1.5rem; }
-
-        /* 1.4 JUMBOTRON (REDESIGNED) */
-        #top-bar {
-            width: 100%; max-width: 600px; 
-            display: flex; flex-direction: column; align-items: center;
-            margin-bottom: 10px;
-        }
-        #host-badge { 
-            font-family: var(--font-head); font-size: 1.5rem; 
-            text-transform: uppercase; margin-bottom: 5px; text-shadow: 2px 2px 0 rgba(0,0,0,0.3);
-        }
-        
-        #scoreboard {
-            display: flex; width: 100%; height: 70px;
-            background: rgba(0,0,0,0.3); border-radius: 12px;
-            border: 1px solid rgba(255,255,255,0.1);
+            display: grid;
+            grid-template-columns: 200px 1fr 200px; /* Sidebars fixed, Center flex */
+            grid-template-rows: 1fr; /* Full height */
             overflow: hidden;
         }
-        
-        /* Left: History */
-        #history-panel {
-            flex: 1; display: grid; grid-template-columns: repeat(13, 1fr);
-            gap: 2px; padding: 5px; align-content: center;
+
+        /* --- SIDEBARS --- */
+        .sidebar {
+            background: rgba(0,0,0,0.2);
+            border-left: 1px solid rgba(255,255,255,0.1);
             border-right: 1px solid rgba(255,255,255,0.1);
+            display: flex; flex-direction: column;
+            padding: 10px; overflow-y: auto;
         }
-        .hist-dot {
-            height: 100%; background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.3);
-            font-size: 8px; display: flex; align-items: center; justify-content: center;
-            border-radius: 2px;
+        .sb-header { font-family: var(--font-head); text-align: center; margin-bottom: 10px; opacity: 0.7; }
+        .list-item { padding: 5px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.9rem; }
+        
+        /* --- CENTER STAGE --- */
+        #main-stage {
+            display: grid;
+            grid-template-rows: auto auto 1fr auto auto; /* Header, Tracker, Card, Controls, Chat */
+            gap: 10px;
+            padding: 10px;
+            height: 100vh;
+            overflow-y: auto;
         }
-        .hist-dot.active { background: var(--accent); color: #000; font-weight: bold; }
 
-        /* Right: Current Call */
-        #call-panel {
-            width: 80px; display: flex; align-items: center; justify-content: center;
-            background: rgba(0,0,0,0.5); position: relative;
+        /* ROW 1: HEADER INFO */
+        #header-row {
+            display: grid; 
+            grid-template-columns: 1fr 1fr 1fr 1fr; /* Host, Cat, Code, Style */
+            gap: 10px;
+            background: var(--panel-bg);
+            padding: 10px; border-radius: 10px;
+            align-items: center;
         }
-        .big-ball {
-            font-family: var(--font-head); font-size: 2.5rem; color: var(--accent);
-            text-shadow: 0 0 10px var(--accent);
-            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        .info-box { text-align: center; }
+        .info-label { font-size: 0.6rem; opacity: 0.6; text-transform: uppercase; font-weight: 900; }
+        .info-val { font-weight: bold; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        
+        #room-code-box { 
+            font-family: 'Courier New', monospace; cursor: pointer; 
+            background: rgba(255,255,255,0.1); padding: 5px; border-radius: 5px;
+            transition: background 0.2s;
+        }
+        #room-code-box:active { background: var(--accent); color: black; }
+
+        /* ROW 2: NUMBER TRACKER */
+        #tracker-row {
+            display: grid;
+            grid-template-columns: 1fr 120px; /* Grid takes space, Call box fixed width */
+            gap: 10px;
+            background: var(--panel-bg);
+            padding: 10px; border-radius: 10px;
         }
         
-        /* PYRAMID LOGIC */
-        .pyramid-icon {
+        /* The Small 5x5 Grid for Called Numbers */
+        #mini-tracker {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            grid-template-rows: repeat(5, 1fr);
+            gap: 4px;
+            height: 100px; /* Fixed height for consistency */
+        }
+        .trk-dot {
+            background: rgba(255,255,255,0.1);
+            color: rgba(255,255,255,0.3);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.7rem; font-weight: bold; border-radius: 4px;
+        }
+        .trk-dot.active { background: var(--accent); color: black; box-shadow: 0 0 5px var(--accent); }
+
+        /* The Call Box (Jumbotron) */
+        #call-display {
+            background: black; border: 2px solid white; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            position: relative; overflow: hidden;
+        }
+        .call-text { font-family: var(--font-head); font-size: 3rem; color: white; }
+        
+        /* The Pyramid (Only appears here for #23) */
+        .pyramid {
             width: 0; height: 0; 
-            border-left: 25px solid transparent; border-right: 25px solid transparent;
-            border-bottom: 40px solid #fbbf24; position: relative;
-            animation: popIn 0.3s;
+            border-left: 30px solid transparent; border-right: 30px solid transparent; border-bottom: 50px solid #fbbf24;
+            position: relative; animation: popIn 0.3s;
         }
-        .pyramid-icon::after {
-            content: '23'; position: absolute; bottom: -38px; left: -10px;
-            color: black; font-weight: bold; font-family: var(--font-head); font-size: 0.9rem;
-        }
-
-        /* 1.5 LAYOUT COLUMNS */
-        #game-layout { display: flex; flex: 1; width: 100%; overflow: hidden; position: relative; gap: 10px; }
-        .side-col {
-            flex: 1; display: flex; flex-direction: column; 
-            background: rgba(0,0,0,0.2); border-radius: 10px; padding: 5px;
-            overflow-y: auto; max-width: 120px;
-        }
-        #center-col {
-            flex: 3; display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+        .pyramid::after {
+            content: '23'; position: absolute; bottom: -45px; left: -12px;
+            color: black; font-weight: bold; font-family: var(--font-head); font-size: 1rem;
         }
 
-        .list-header { font-size: 0.7rem; font-weight: 900; opacity: 0.5; text-align: center; margin-bottom: 5px; }
-        .list-item { font-size: 0.75rem; padding: 4px; border-bottom: 1px solid rgba(255,255,255,0.1); word-break: break-word; }
-
-        /* 1.6 THE BOARD */
-        #game-board-container {
-            width: 100%; aspect-ratio: 1/1; max-width: 400px;
-            position: relative; background: #000; border: 4px solid white; border-radius: 8px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.5); overflow: hidden;
+        /* ROW 3: THE CARD (CENTER STAGE) */
+        #card-container {
+            display: flex; align-items: center; justify-content: center;
+            min-height: 0; /* Important for flex/grid nesting */
         }
-        #target-image { width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0; z-index: 1; }
-        #grid-overlay {
-            position: absolute; inset: 0; z-index: 2;
-            display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(5, 1fr);
+        #the-card {
+            width: 100%; max-width: 500px; aspect-ratio: 1/1;
+            background: #000; border: 5px solid white; border-radius: 10px;
+            position: relative; overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+        }
+        #target-image { width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0; }
+        #tile-grid {
+            position: absolute; inset: 0; 
+            display: grid; grid-template-columns: repeat(5, 1fr); 
             gap: 1px;
         }
-        
         .tile {
             background: var(--tile-color); color: rgba(255,255,255,0.2);
             display: flex; align-items: center; justify-content: center;
-            font-family: var(--font-head); font-size: 1.5rem;
-            cursor: pointer; user-select: none; transition: opacity 0.3s;
+            font-family: var(--font-head); font-size: 2rem; cursor: pointer;
+            transition: opacity 0.2s;
         }
         .tile.revealed { opacity: 0; pointer-events: none; }
-        
-        /* FIX FOR DOUBLE 23: Hide base text */
-        .tile.is-23 { color: transparent !important; position: relative; }
-        .tile.is-23::after { 
-            content: '23'; position: absolute; 
-            color: #fbbf24; font-size: 1.5rem; text-shadow: 0 0 5px #fbbf24;
+
+        /* ROW 4: CONTROLS */
+        #controls-row {
+            display: flex; gap: 10px; height: 60px;
         }
+        .control-btn {
+            flex: 1; border: none; border-radius: 10px;
+            font-family: var(--font-head); font-size: 1.2rem; cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .control-btn:active { transform: translateY(2px); }
+        .btn-guess { background: var(--accent); color: #000; }
+        .btn-pass { background: #ef4444; color: #fff; }
+        .btn-call { background: #fff; color: #000; font-size: 1.5rem; }
 
-        /* 1.7 FOOTER */
-        #action-bar { margin-top: 15px; width: 100%; max-width: 300px; display: flex; gap: 10px; }
+        /* ROW 5: CHAT */
+        #chat-row {
+            height: 50px; display: flex; gap: 10px;
+        }
+        #chat-input { flex: 1; padding: 10px; border-radius: 8px; border: none; outline: none; font-family: var(--font-body); }
+        #chat-send { width: 60px; border-radius: 8px; border: none; background: #3b82f6; color: white; cursor: pointer; font-weight: bold; }
 
+        /* GUESS INPUT OVERLAY */
+        #guess-input-container {
+            display: none; width: 100%; gap: 10px;
+        }
+        #text-guess { flex: 1; padding: 10px; border-radius: 8px; font-size: 1.2rem; border: none; outline: none; }
+        
+        /* UTILS */
+        .hidden { display: none !important; }
         @keyframes popIn { from{transform:scale(0);} to{transform:scale(1);} }
-        @media (max-width: 600px) { .side-col { display: none; } } /* Mobile hides sidebars for now */
-
+        
+        /* Mobile Stack */
+        @media (max-width: 800px) {
+            body { grid-template-columns: 1fr; } /* Stack columns */
+            .sidebar { display: none; } /* Hide sidebars on phone, put in drawer later */
+            #header-row { grid-template-columns: 1fr 1fr; } /* 2x2 header */
+        }
     </style>
 </head>
 <body>
 
-    <!-- SCREEN: LOBBY -->
-    <div id="screen-start" class="screen active">
-        <h1 style="margin-top:50px;">REVEAL!</h1>
-        <div class="subtitle">v3.1</div>
-        <div class="card">
-            <button class="big-btn" onclick="goToHost()">HOST A GAME</button>
-            <div style="margin:10px 0; opacity:0.5; font-size:0.8rem;">OR</div>
-            <button class="big-btn secondary" onclick="goToJoin()">JOIN A GAME</button>
-        </div>
+    <!-- LEFT COLUMN: PLAYERS -->
+    <div class="sidebar" id="col-players">
+        <div class="sb-header">PLAYERS</div>
+        <div id="list-players"></div>
     </div>
 
-    <!-- SCREEN: HOST SETUP -->
-    <div id="screen-host" class="screen">
-        <h2>SETUP</h2>
-        <div class="card">
-            <input type="text" id="host-name" placeholder="HOST NAME">
-            <input type="text" id="game-cat" placeholder="CATEGORY">
-            <input type="text" id="game-ans" placeholder="ANSWER">
-            <label style="margin-top:10px;">Game Image</label>
-            <input type="file" id="img-upload" accept="image/*" onchange="processImage()">
-            <div id="img-preview" style="width:100px; height:100px; margin:10px auto; background:#333; display:none; background-size:cover;"></div>
-            <label>Theme</label>
-            <select id="host-skin" onchange="applySkin(this.value)"></select>
-            <button class="big-btn" id="btn-create" disabled onclick="createGame()">CREATE</button>
-        </div>
-        <button onclick="goTo('screen-start')" style="margin-top:20px; border:none; background:none; color:white;">BACK</button>
-    </div>
-
-    <!-- SCREEN: JOIN -->
-    <div id="screen-join-code" class="screen">
-        <h2>CODE</h2>
-        <div class="card">
-            <input type="text" id="join-code-input" class="code-input" maxlength="4" placeholder="ABCD">
-            <button class="big-btn" onclick="verifyCode()">NEXT</button>
-        </div>
-        <button onclick="goTo('screen-start')" style="margin-top:20px; border:none; background:none; color:white;">BACK</button>
-    </div>
-
-    <!-- SCREEN: JOIN DETAILS -->
-    <div id="screen-join-setup" class="screen">
-        <h2 id="join-room-title">ROOM</h2>
-        <div class="card">
-            <div id="join-host-label" style="color:var(--accent); font-weight:bold; margin-bottom:10px;">Loading Host...</div>
-            <input type="text" id="join-name" placeholder="YOUR NAME">
-            <select id="join-skin" onchange="applySkin(this.value)"></select>
-            <button class="big-btn" onclick="joinGame()">ENTER</button>
-        </div>
-    </div>
-
-    <!-- SCREEN: GAME -->
-    <div id="screen-game" class="screen" style="padding:10px;">
-        <div id="top-bar">
-            <div id="host-badge">HOST: ???</div>
-            <div id="scoreboard">
-                <div id="history-panel"></div>
-                <div id="call-panel"><span style="font-size:0.8rem; opacity:0.5;">READY</span></div>
+    <!-- CENTER COLUMN: GAME -->
+    <div id="main-stage">
+        
+        <!-- ROW 1: HEADER -->
+        <div id="header-row">
+            <div class="info-box">
+                <div class="info-label">HOST</div>
+                <div class="info-val" id="disp-host">???</div>
+            </div>
+            <div class="info-box">
+                <div class="info-label">CATEGORY</div>
+                <div class="info-val" id="disp-cat">???</div>
+            </div>
+            <div class="info-box">
+                <div class="info-label">CODE</div>
+                <div class="info-val" id="room-code-box" onclick="copyCode()">ABCD</div>
+            </div>
+            <div class="info-box">
+                <div class="info-label">STYLE</div>
+                <select id="style-select" onchange="applySkin(this.value)" style="padding:0; width:100%; text-align:center; background:transparent; color:white; border:none; font-weight:bold; font-size:0.8rem;">
+                    <option value="vibrant">Vibrant</option>
+                    <option value="dark">Dark</option>
+                    <option value="retro">Retro</option>
+                    <!-- Add others -->
+                </select>
             </div>
         </div>
 
-        <div id="game-layout">
-            <div class="side-col" id="col-guesses">
-                <div class="list-header">GUESSES</div>
-                <div id="list-guesses"></div>
+        <!-- ROW 2: TRACKER + JUMBOTRON -->
+        <div id="tracker-row">
+            <div id="mini-tracker">
+                <!-- 1-25 generated by JS -->
             </div>
+            <div id="call-display">
+                <div class="call-text">--</div>
+            </div>
+        </div>
+
+        <!-- ROW 3: THE CARD -->
+        <div id="card-container">
+            <div id="the-card">
+                <img id="target-image" src="">
+                <div id="tile-grid"></div>
+            </div>
+        </div>
+
+        <!-- ROW 4: CONTROLS -->
+        <div id="controls-row">
+            <!-- Dynamic content based on Host vs Player -->
+            <button class="control-btn btn-call" id="btn-host-action" onclick="hostAction()">CALL NUMBER</button>
             
-            <div id="center-col">
-                <div id="game-board-container">
-                    <img id="target-image" src="">
-                    <div id="grid-overlay"></div>
-                </div>
+            <div id="player-actions" style="display:none; width:100%; gap:10px;">
+                <button class="control-btn btn-guess" onclick="showGuessInput()">GUESS</button>
+                <button class="control-btn btn-pass" onclick="passTurn()">PASS</button>
             </div>
 
-            <div class="side-col" id="col-players">
-                <div class="list-header">PLAYERS</div>
-                <div id="list-players"></div>
-            </div>
-        </div>
-
-        <div id="action-bar"></div>
-    </div>
-
-<script>
-    // --- SKINS ---
-    const SKINS = {
-        vibrant: { n: "Vibrant", bg: '#4c1d95', acc: '#2dd4bf', text: '#fff', tile: '#1e293b' },
-        artdeco: { n: "Art Deco", bg: '#121212', acc: '#d4af37', text: '#e0e0e0', tile: '#1f1f1f' },
-        academia: { n: "Academia", bg: '#2b2118', acc: '#8b9d83', text: '#eaddcf', tile: '#3e3226' },
-        noir: { n: "Noir", bg: '#000000', acc: '#ffffff', text: '#cccccc', tile: '#333333' },
-        cotton: { n: "Cotton", bg: '#fbcfe8', acc: '#38bdf8', text: '#333333', tile: '#ffffff' },
-        // ... (Other skins implied or can be added)
-    };
-
-    let myName, roomCode, isHost;
-    let client, gameImg = null;
-    let gameState = { hostName: "", players: [], guesses: [], revealed: [], turnOrder: [], currentTurnIdx: 0, status: 'WAITING' };
-    
-    const BROKER = 'wss://broker.emqx.io:8084/mqtt';
-    const TOPIC_PRE = 'reveal_v3_1';
-
-    // --- SETUP ---
-    document.addEventListener('DOMContentLoaded', () => {
-        const opts = Object.keys(SKINS).map(k => `<option value="${k}">${SKINS[k].n}</option>`).join('');
-        document.getElementById('host-skin').innerHTML = opts;
-        document.getElementById('join-skin').innerHTML = opts;
-        buildNumberHistory();
-    });
-
-    function applySkin(key) {
-        const s = SKINS[key] || SKINS.vibrant;
-        const r = document.documentElement.style;
-        r.setProperty('--bg-color', s.bg);
-        r.setProperty('--accent', s.acc);
-        r.setProperty('--text-color', s.text);
-        r.setProperty('--tile-color', s.tile);
-    }
-
-    function goTo(id) { document.querySelectorAll('.screen').forEach(s => s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
-    function goToHost() { goTo('screen-host'); }
-    function goToJoin() { goTo('screen-join-code'); }
-
-    // --- IMAGE ENGINE ---
-    function processImage() {
-        const file = document.getElementById('img-upload').files[0];
-        if(!file) return;
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const img = new Image(); img.src = e.target.result;
-            img.onload = () => {
-                const cvs = document.createElement('canvas'); const ctx = cvs.getContext('2d');
-                const s = Math.min(img.width, img.height);
-                cvs.width = 600; cvs.height = 600;
-                ctx.drawImage(img, (img.width-s)/2, (img.height-s)/2, s, s, 0, 0, 600, 600);
-                gameImg = cvs.toDataURL('image/jpeg', 0.6);
-                const prev = document.getElementById('img-preview');
-                prev.style.backgroundImage = `url(${gameImg})`;
-                prev.style.display = 'block';
-                checkHostReady();
-            };
-        };
-        reader.readAsDataURL(file);
-    }
-
-    function checkHostReady() {
-        const n=document.getElementById('host-name').value, c=document.getElementById('game-cat').value, a=document.getElementById('game-ans').value;
-        document.getElementById('btn-create').disabled = !(n && c && a && gameImg);
-    }
-    document.querySelectorAll('input').forEach(i => i.addEventListener('keyup', checkHostReady));
-
-    // --- HOST START ---
-    function createGame() {
-        myName = document.getElementById('host-name').value;
-        gameState.hostName = myName;
-        gameState.category = document.getElementById('game-cat').value.toUpperCase();
-        gameState.answer = document.getElementById('game-ans').value;
-        roomCode = Math.random().toString(36).substr(2,4).toUpperCase();
-        isHost = true;
-        
-        setupGameUI();
-        connectMQTT();
-        startHostLoop();
-    }
-    
-    function startHostLoop() {
-        setInterval(() => {
-            const pl = { type: 'STATE', state: gameState, img: gameImg };
-            client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify(pl));
-        }, 1000);
-    }
-
-    // --- JOIN START ---
-    function verifyCode() {
-        const c = document.getElementById('join-code-input').value.trim().toUpperCase();
-        if(c.length !== 4) return alert("4 Letters");
-        roomCode = c;
-        goTo('screen-join-setup');
-        document.getElementById('join-room-title').innerText = "ROOM: " + c;
-        isHost = false;
-        connectMQTT(); // Connect early to get Host Name
-    }
-    function joinGame() {
-        myName = document.getElementById('join-name').value;
-        if(!myName) return alert("Name required");
-        send({type:'JOIN', name:myName});
-        setupGameUI();
-    }
-
-    // --- UI BUILDER ---
-    function setupGameUI() {
-        goTo('screen-game');
-        if(isHost) {
-            document.getElementById('target-image').src = gameImg;
-            updateActionBar();
-        }
-        buildGrid();
-        renderState(); // Immediate render
-    }
-    
-    function buildNumberHistory() {
-        const p = document.getElementById('history-panel');
-        p.innerHTML = '';
-        for(let i=1; i<=25; i++) {
-            let d = document.createElement('div');
-            d.className = 'hist-dot';
-            d.id = 'hist-'+i;
-            d.innerText = i;
-            p.appendChild(d);
-        }
-    }
-    
-    function buildGrid() {
-        const grid = document.getElementById('grid-overlay');
-        grid.innerHTML = '';
-        let nums = Array.from({length:25},(_,i)=>i+1);
-        // Shuffle
-        for(let i=nums.length-1; i>0; i--){ const j=Math.floor(Math.random()*(i+1)); [nums[i],nums[j]]=[nums[j],nums[i]]; }
-        
-        nums.forEach(n => {
-            let t = document.createElement('div');
-            t.className = 'tile';
-            if(n===23) t.classList.add('is-23');
-            t.dataset.n = n;
-            t.innerText = n; // CSS hides this for #23
-            t.onclick = () => { if(isHost || gameState.revealed.includes(n)) {
-                // Host click logic for testing, or player clearing board
-                t.classList.add('revealed');
-            }};
-            grid.appendChild(t);
-        });
-    }
-
-    function updateActionBar() {
-        const b = document.getElementById('action-bar');
-        b.innerHTML = '';
-        if(isHost) {
-            b.innerHTML = `<button class="big-btn" onclick="hostCallNumber()">CALL NUMBER</button>`;
-        }
-    }
-
-    // --- GAME ACTIONS ---
-    function hostCallNumber() {
-        let avail = [];
-        for(let i=1; i<=25; i++) if(!gameState.revealed.includes(i)) avail.push(i);
-        if(avail.length > 0) {
-            let p = avail[Math.floor(Math.random()*avail.length)];
-            gameState.revealed.push(p);
-            send({type:'STATE', state:gameState});
-            renderState();
-        }
-    }
-
-    function renderState() {
-        // 1. Info
-        document.getElementById('host-badge').innerText = `HOST: ${gameState.hostName} | ${gameState.category || ''}`;
-        
-        // 2. History & Current Call
-        document.querySelectorAll('.hist-dot').forEach(d => d.classList.remove('active'));
-        let lastCall = 0;
-        gameState.revealed.forEach(n => {
-            let el = document.getElementById('hist-'+n);
-            if(el) el.classList.add('active');
-            lastCall = n;
-        });
-        
-        const cb = document.getElementById('call-panel');
-        if(lastCall > 0) {
-            if(lastCall === 23) cb.innerHTML = '<div class="pyramid-icon"></div>';
-            else cb.innerHTML = `<div class="ball">${lastCall}</div>`;
-        }
-        
-        // 3. Grid
-        document.querySelectorAll('.tile').forEach(t => {
-            if(gameState.revealed.includes(parseInt(t.dataset.n))) t.classList.add('revealed');
-        });
-        
-        // 4. Players
-        const pl = document.getElementById('list-players');
-        pl.innerHTML = '';
-        gameState.players.forEach(p => {
-            let d = document.createElement('div');
-            d.className = 'list-item'; d.innerText = p.name;
-            pl.appendChild(d);
-        });
-    }
-
-    // --- MQTT ---
-    function connectMQTT() {
-        client = mqtt.connect(BROKER);
-        const t = `${TOPIC_PRE}/${roomCode}`;
-        
-        client.on('connect', () => {
-            client.subscribe(t);
-        });
-        
-        client.on('message', (tpc, m) => {
-            const msg = JSON.parse(m.toString());
-            if(msg.type === 'STATE') {
-                gameState = msg.state;
-                // If waiting to join, show host name
-                if(document.getElementById('screen-join-setup').classList.contains('active')) {
-                    if(gameState.hostName) document.getElementById('join-host-label').innerText = "HOST: " + gameState.hostName;
-                }
-                // If playing, update image if missing
-                if(!isHost && msg.img && document.getElementById('target-image').src === "") {
-                    document.getElementById('target-image').src = msg.img;
-                }
-                renderState();
-            }
-            if(msg.type === 'JOIN' && isHost) {
-                if(!gameState.players.find(p=>p.name===msg.name)) {
-                    gameState.players.push({name:msg.name});
-                    // Re-broadcast
-                    client.publish(t, JSON.stringify({ type:'STATE', state:gameState, img:gameImg }));
-                }
-            }
-        });
-    }
-
-    function send(pl) { client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify(pl)); }
-
-</script>
-</body>
-</html>
+            <div id="guess-input-container">
+                <input type="text" id="text-guess" placeholder="TYPE IT...">
+                <button class="control-btn btn-guess" onclick="submitGuess()">SEND</button>
+                <button class="control-btn
