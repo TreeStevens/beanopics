@@ -1,21 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
 <!-- 
-    REVEAL! v4.0
-    - LAYOUT: 3-Column Grid matching wireframe.
-    - LOGIC: Strict Click Lockout (Must be called to click).
-    - VISUAL: Jumbotron Split (History Grid + Big Call).
-    - VISUAL: Tile 23 is normal on board, Pyramid in Call Box.
+    REVEAL! v4.2
+    - LAYOUT: "Game Stack" architecture. Header, Jumbotron, Card, Controls all locked to same max-width.
+    - VISUAL: Jumbotron is split 50/50. Left is History Grid, Right is Current Call. Both Square.
+    - CONTROLS: Players get split GUESS/PASS buttons. Guess swaps to input inline.
+    - LOGIC: Retains v4.1 connectivity and state handling.
 -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>REVEAL! v4.0</title>
+    <title>REVEAL! v4.2</title>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
 
     <style>
-        /* --- 1. CORE VARIABLES --- */
+        /* --- CORE VARS --- */
         :root {
             --bg-color: #4c1d95;
             --panel-bg: rgba(0,0,0,0.25);
@@ -25,20 +25,19 @@
             --font-body: 'Nunito', sans-serif;
             --tile-off: #1e293b;
             --tile-on: #fbbf24;
+            --card-max-width: 450px; /* MASTER WIDTH VARIABLE */
         }
 
         * { box-sizing: border-box; }
-
-        body {
-            margin: 0; padding: 0;
+        body { 
+            margin: 0; padding: 0; height: 100vh; width: 100vw;
             background: var(--bg-color); color: var(--text-main);
             font-family: var(--font-body);
-            overflow: hidden; height: 100vh; width: 100vw;
-            display: flex; flex-direction: column;
+            display: flex; flex-direction: column; overflow: hidden;
             transition: background 0.3s ease;
         }
 
-        /* --- 2. SCREENS (Lobby/Setup) --- */
+        /* SCREENS */
         .screen {
             position: absolute; inset: 0; 
             display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -54,36 +53,30 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.3);
         }
 
-        /* Controls */
+        /* INPUTS */
+        .control-group { margin-bottom: 15px; text-align: left; width: 100%; }
+        label { display: block; font-weight: 900; margin-bottom: 5px; font-size: 0.8rem; text-transform: uppercase; opacity: 0.8; }
         input, select {
             width: 100%; padding: 12px; border-radius: 10px; border: none;
-            font-family: var(--font-body); font-weight: 800; font-size: 1rem;
-            background: #f8fafc; color: #1e293b; outline: none; margin-bottom: 10px;
+            font-family: var(--font-body); font-weight: 800; font-size: 1.1rem;
+            background: #f8fafc; color: #1e293b; outline: none;
         }
+        .code-input { font-family: 'Courier New', monospace; letter-spacing: 5px; text-align: center; font-size: 1.5rem; text-transform: uppercase; }
+
         .big-btn {
-            width: 100%; padding: 12px; border-radius: 10px; border: none;
+            width: 100%; padding: 15px; border-radius: 12px; border: none;
             font-family: var(--font-head); font-size: 1.2rem; cursor: pointer;
             background: var(--accent); color: #000;
-            box-shadow: 0 4px 0 rgba(0,0,0,0.2); margin-top: 5px;
+            box-shadow: 0 5px 0 rgba(0,0,0,0.2); margin-top: 5px;
+            transition: transform 0.1s;
         }
         .big-btn:active { transform: translateY(2px); box-shadow: none; }
-        .big-btn:disabled { background: #94a3b8; cursor: default; box-shadow: none; }
+        .big-btn:disabled { background: #64748b; cursor: not-allowed; box-shadow: none; opacity: 0.7; }
         .big-btn.secondary { background: rgba(255,255,255,0.2); color: white; }
 
-        /* --- 3. GAME LAYOUT (Grid) --- */
-        #game-screen {
-            display: grid;
-            grid-template-rows: 1fr 60px; /* Main Area | Chat Footer */
-            height: 100%; width: 100%;
-            padding: 0; margin: 0;
-        }
-
-        #main-area {
-            display: grid;
-            grid-template-columns: 200px 1fr 200px; /* Players | Board | Guesses */
-            overflow: hidden;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
+        /* --- 3-COLUMN GAME GRID --- */
+        #game-screen { display: grid; grid-template-rows: 1fr 60px; height: 100%; width: 100%; }
+        #main-area { display: grid; grid-template-columns: 200px 1fr 200px; overflow: hidden; }
 
         /* SIDEBARS */
         .sidebar {
@@ -93,64 +86,77 @@
             display: flex; flex-direction: column; padding: 10px; overflow-y: auto;
         }
         .sb-head { font-family: var(--font-head); text-align: center; opacity: 0.6; margin-bottom: 10px; font-size: 0.9rem; }
-        .sb-item { font-size: 0.85rem; padding: 5px; border-bottom: 1px solid rgba(255,255,255,0.05); word-break: break-word; }
-        .sb-item.active-turn { background: rgba(255,255,255,0.2); border-left: 4px solid var(--accent); }
+        .sb-item { font-size: 0.85rem; padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); word-break: break-word; }
+        .sb-item.active-turn { background: rgba(255,255,255,0.2); border-left: 4px solid var(--accent); animation: pulse 1s infinite; }
 
-        /* CENTER COLUMN */
+        /* --- CENTER STAGE (THE STACK) --- */
         #center-stage {
-            display: flex; flex-direction: column; gap: 10px; padding: 10px;
-            overflow-y: auto; align-items: center;
+            display: flex; flex-direction: column; 
+            padding: 10px; overflow-y: auto; 
+            align-items: center; /* Horizontally center everything */
+        }
+        
+        /* The Wrapper that locks everything to the same width */
+        .game-stack {
+            width: 100%;
+            max-width: var(--card-max-width);
+            display: flex; flex-direction: column; gap: 8px;
         }
 
-        /* A. HEADER ROW */
+        /* 1. HEADER ROW */
         #header-row {
-            display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 5px;
-            width: 100%; background: var(--panel-bg); padding: 8px; border-radius: 8px;
+            display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 4px;
+            background: var(--panel-bg); padding: 5px; border-radius: 6px;
         }
         .info-cell { text-align: center; overflow: hidden; }
-        .info-lbl { font-size: 0.6rem; opacity: 0.6; font-weight: 900; text-transform: uppercase; }
-        .info-val { font-weight: bold; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .info-lbl { font-size: 0.5rem; opacity: 0.6; font-weight: 900; text-transform: uppercase; }
+        .info-val { font-weight: bold; font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         #room-code-display { font-family: 'Courier New', monospace; cursor: pointer; background: rgba(255,255,255,0.1); border-radius: 4px; }
 
-        /* B. JUMBOTRON ROW */
+        /* 2. JUMBOTRON (50/50 Split) */
         #jumbotron {
-            display: grid; grid-template-columns: 1fr 120px; gap: 10px;
-            width: 100%; background: var(--panel-bg); padding: 10px; border-radius: 8px;
+            display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+            height: 160px; /* Fixed height for squares */
         }
-        /* Mini Tracker */
+        /* Mini Grid (History) */
+        #mini-grid-container {
+            background: black; border: 2px solid white; border-radius: 8px;
+            display: flex; align-items: center; justify-content: center; padding: 5px;
+        }
         #mini-grid {
-            display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(5, 1fr);
-            gap: 2px; height: 100px; /* Fixed height to keep square-ish cells */
+            display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px;
+            width: 100%; aspect-ratio: 1/1; /* Square inside the box */
         }
         .trk-cell {
-            background: rgba(0,0,0,0.3); color: rgba(255,255,255,0.2);
+            background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.3);
             display: flex; align-items: center; justify-content: center;
-            font-size: 0.7rem; border-radius: 2px; font-weight: bold;
+            font-size: 0.6rem; border-radius: 2px; font-weight: bold;
         }
         .trk-cell.active { background: var(--accent); color: black; box-shadow: 0 0 5px var(--accent); }
 
-        /* Call Box */
+        /* Call Box (Next Number) */
         #call-box {
             background: black; border: 2px solid white; border-radius: 8px;
-            display: flex; align-items: center; justify-content: center;
-            height: 100px; overflow: hidden; position: relative;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            position: relative; overflow: hidden;
         }
-        .call-val { font-family: var(--font-head); font-size: 3.5rem; color: white; animation: pop 0.3s; }
+        .call-lbl { position: absolute; top: 5px; font-size: 0.7rem; opacity: 0.5; text-transform: uppercase; letter-spacing: 1px; }
+        .call-val { font-family: var(--font-head); font-size: 5rem; color: white; animation: pop 0.2s; line-height: 1; }
         
-        /* Pyramid Graphic (For Call Box #23 Only) */
+        /* Pyramid (Only for #23) */
         .pyramid {
             width: 0; height: 0; 
-            border-left: 35px solid transparent; border-right: 35px solid transparent; border-bottom: 60px solid #fbbf24;
-            position: relative; animation: pop 0.3s; margin-top: -10px;
+            border-left: 45px solid transparent; border-right: 45px solid transparent; border-bottom: 70px solid #fbbf24;
+            position: relative; animation: pop 0.3s; margin-top: 10px;
         }
         .pyramid::after {
-            content: '23'; position: absolute; bottom: -55px; left: -14px;
-            color: black; font-weight: 900; font-family: var(--font-head); font-size: 1.2rem;
+            content: '23'; position: absolute; bottom: -65px; left: -18px;
+            color: black; font-weight: 900; font-family: var(--font-head); font-size: 1.5rem;
         }
 
-        /* C. PLAYING CARD */
+        /* 3. CARD (The Image) */
         #card-wrapper {
-            width: 100%; max-width: 450px; aspect-ratio: 1/1;
+            width: 100%; aspect-ratio: 1/1; /* Perfect Square */
             position: relative; background: #000;
             border: 4px solid white; border-radius: 8px;
             box-shadow: 0 10px 40px rgba(0,0,0,0.4);
@@ -158,71 +164,87 @@
         }
         #target-img { width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0; z-index: 1; }
         #tile-grid {
-            position: absolute; inset: 0; z-index: 2;
+            position: absolute; inset: 0; z-index: 10;
             display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px;
         }
         .tile {
             background: var(--tile-off); color: rgba(255,255,255,0.3);
             display: flex; align-items: center; justify-content: center;
-            font-family: var(--font-head); font-size: 1.8rem;
+            font-family: var(--font-head); font-size: 2rem;
             cursor: pointer; user-select: none; transition: opacity 0.2s;
         }
-        /* Lockout Logic Visuals */
         .tile.locked { cursor: not-allowed; opacity: 1 !important; }
         .tile.revealed { opacity: 0; pointer-events: none; }
+        .tile[data-n="23"] { color: transparent; } /* Hidden number */
 
-        /* D. CONTROLS */
+        /* 4. CONTROLS */
         #controls-bar {
-            width: 100%; max-width: 450px; display: flex; gap: 10px; height: 60px;
+            width: 100%; min-height: 60px; display: flex;
         }
+        
+        /* Host Layout: 1 Big Button */
+        #host-btns { width: 100%; display: none; }
+        .btn-call { 
+            width: 100%; height: 60px; border-radius: 8px; border: none;
+            background: white; color: black; font-family: var(--font-head); font-size: 1.5rem; 
+            cursor: pointer; box-shadow: 0 4px 0 #999; 
+        }
+        .btn-call:active { transform: translateY(4px); box-shadow: none; }
+        
+        /* Player Layout: 2 Buttons (50/50) */
+        #player-btns { width: 100%; display: none; gap: 10px; }
         .ctrl-btn {
-            flex: 1; border: none; border-radius: 8px;
+            flex: 1; height: 60px; border-radius: 8px; border: none;
             font-family: var(--font-head); font-size: 1.2rem; cursor: pointer;
-            box-shadow: 0 4px 0 rgba(0,0,0,0.2); transition: transform 0.1s;
+            box-shadow: 0 4px 0 rgba(0,0,0,0.3);
         }
-        .ctrl-btn:active { transform: translateY(2px); box-shadow: none; }
-        .btn-call { background: white; color: black; font-size: 1.5rem; }
+        .ctrl-btn:active { transform: translateY(4px); box-shadow: none; }
         .btn-guess { background: var(--accent); color: black; }
         .btn-pass { background: #ef4444; color: white; }
-        
-        /* Guess Input Mode */
-        #guess-interface { display: none; width: 100%; gap: 5px; }
-        #guess-field { flex: 1; height: 100%; padding: 0 15px; border-radius: 8px; border: none; font-size: 1.2rem; text-align: center; outline: none; }
 
-        /* --- 4. FOOTER (CHAT) --- */
+        /* Guess Interface (Swaps in) */
+        #guess-interface { display: none; width: 100%; gap: 5px; height: 60px; }
+        #guess-field { 
+            flex: 1; height: 100%; padding: 0 15px; border-radius: 8px; border: none; 
+            font-size: 1.2rem; text-align: center; outline: none; background: white; color: black;
+        }
+
+        /* 5. FOOTER (Chat) */
         #chat-bar {
             background: rgba(0,0,0,0.4); padding: 10px;
-            display: flex; gap: 10px; align-items: center;
+            display: flex; gap: 10px; align-items: center; border-top: 1px solid rgba(255,255,255,0.1);
         }
-        #chat-input { flex: 1; padding: 10px; border-radius: 8px; border: none; font-family: var(--font-body); outline: none; }
+        #chat-input { flex: 1; padding: 10px; border-radius: 8px; border: none; font-family: var(--font-body); outline: none; margin: 0; }
         #chat-send { width: 60px; border-radius: 8px; border: none; background: #3b82f6; color: white; font-weight: bold; cursor: pointer; }
 
-        /* MODALS & TOAST */
-        #toast {
-            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-            background: #333; color: white; padding: 10px 20px; border-radius: 30px;
-            z-index: 9999; display: none; font-weight: bold; box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+        /* Floating Button for Mobile */
+        #chat-btn-float {
+            position: fixed; bottom: 80px; right: 20px; width: 50px; height: 50px;
+            background: white; border-radius: 50%; font-size: 1.5rem; border: none;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3); z-index: 50; display: none;
         }
+        #chat-btn-float.shake { animation: shake 0.5s infinite; background: #fbbf24; }
 
-        @keyframes pop { 0%{transform:scale(0);} 80%{transform:scale(1.1);} 100%{transform:scale(1);} }
+        /* UTILS */
         .hidden { display: none !important; }
+        @keyframes pop { 0%{transform:scale(0);} 80%{transform:scale(1.1);} 100%{transform:scale(1);} }
+        @keyframes shake { 0% { transform: translate(1px, 1px) rotate(0deg); } 50% { transform: translate(-1px, 2px) rotate(-1deg); } 100% { transform: translate(1px, -2px) rotate(-1deg); } }
+        @keyframes pulse { 0%{border-color:var(--accent);} 50%{border-color:white;} 100%{border-color:var(--accent);} }
 
-        /* Responsive: Stack Columns on Mobile */
         @media (max-width: 800px) {
             #main-area { grid-template-columns: 1fr; }
-            .sidebar { display: none; } /* Hidden on mobile per wireframe priority */
+            .sidebar { display: none; } 
+            #chat-bar { display: none; }
+            #chat-btn-float { display: block; }
         }
     </style>
 </head>
 <body>
 
-    <!-- TOAST -->
-    <div id="toast"></div>
-
     <!-- SCREEN 1: LOBBY -->
     <div id="screen-lobby" class="screen active">
         <div class="card-panel">
-            <h1>REVEAL! v4.0</h1>
+            <h1>REVEAL! v4.2</h1>
             <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
                 <button class="big-btn" onclick="showHostSetup()">HOST GAME</button>
                 <div style="opacity:0.5; margin:5px 0;">OR</div>
@@ -231,64 +253,59 @@
         </div>
     </div>
 
-    <!-- SCREEN 2: HOST -->
-    <div id="screen-host" class="screen">
+    <!-- SCREEN 2: HOST SETUP -->
+    <div id="screen-host-setup" class="screen">
         <div class="card-panel">
-            <h2>SETUP</h2>
-            <input type="text" id="host-name" placeholder="HOST NAME">
-            <input type="text" id="game-cat" placeholder="CATEGORY">
-            <input type="text" id="game-ans" placeholder="ANSWER">
-            <label>IMAGE</label>
-            <input type="file" id="img-upload" accept="image/*" onchange="processImage()">
-            <label>THEME</label>
-            <select id="host-skin" onchange="applySkin(this.value)"></select>
-            <button class="big-btn" id="btn-create" disabled onclick="createGame()">CREATE</button>
-            <button class="big-btn secondary" onclick="goTo('screen-lobby')" style="margin-top:10px; font-size:1rem;">BACK</button>
+            <h2>GAME SETUP</h2>
+            <div class="control-group"><label>HOST NAME</label><input type="text" id="host-name" placeholder="Name"></div>
+            <div class="control-group"><label>CATEGORY</label><input type="text" id="game-cat" placeholder="e.g. 80s Movies"></div>
+            <div class="control-group"><label>ANSWER</label><input type="text" id="game-ans" placeholder="Secret Answer"></div>
+            <div class="control-group"><label>IMAGE</label><input type="file" id="img-upload" accept="image/*" onchange="processImage()"></div>
+            
+            <button class="big-btn" id="btn-create" disabled onclick="createGame()">CREATE ROOM</button>
+            <button class="big-btn secondary" onclick="goTo('screen-lobby')" style="margin-top:15px; font-size:1rem;">BACK</button>
         </div>
     </div>
 
-    <!-- SCREEN 3: JOIN -->
-    <div id="screen-join" class="screen">
+    <!-- SCREEN 3: JOIN CODE (Step 1) -->
+    <div id="screen-join-code" class="screen">
         <div class="card-panel">
-            <h2>JOIN</h2>
-            <input type="text" id="join-code" class="code-input" maxlength="4" placeholder="CODE">
-            <button class="big-btn" onclick="verifyCode()">NEXT</button>
-            <button class="big-btn secondary" onclick="goTo('screen-lobby')" style="margin-top:10px; font-size:1rem;">BACK</button>
+            <h2>ENTER CODE</h2>
+            <input type="text" id="join-code" class="code-input" maxlength="4" placeholder="ABCD">
+            <button class="big-btn" id="btn-search" onclick="searchRoom()">NEXT</button>
+            <button class="big-btn secondary" onclick="goTo('screen-lobby')" style="margin-top:15px; font-size:1rem;">BACK</button>
         </div>
     </div>
 
-    <!-- SCREEN 4: JOIN DETAILS -->
-    <div id="screen-join-details" class="screen">
+    <!-- SCREEN 4: JOIN SETUP (Step 2 - Wait for Host Handshake) -->
+    <div id="screen-join-setup" class="screen">
         <div class="card-panel">
-            <h2 id="join-room-disp">ROOM: ????</h2>
-            <div id="join-host-disp" style="color:var(--accent); font-weight:bold; margin-bottom:15px;">Loading...</div>
+            <h2 id="join-room-disp">ROOM FOUND</h2>
+            <div id="join-host-disp" style="color:var(--accent); margin-bottom:15px; font-weight:bold;">Connecting...</div>
             <input type="text" id="join-name" placeholder="YOUR NAME">
-            <select id="join-skin" onchange="applySkin(this.value)"></select>
-            <button class="big-btn" onclick="enterGame()">ENTER</button>
+            <button class="big-btn" id="btn-enter" disabled onclick="enterGame()">ENTER GAME</button>
         </div>
     </div>
 
-    <!-- SCREEN 5: GAME -->
-    <div id="screen-game" class="screen" style="padding:0; background:var(--bg-color);">
+    <!-- SCREEN 5: GAME BOARD -->
+    <div id="game-screen" class="screen" style="padding:0; background:var(--bg-color); display:none;">
         <div id="game-screen">
             
-            <!-- MAIN CONTENT AREA (3 Columns) -->
-            <div id="main-area">
-                
-                <!-- LEFT: PLAYERS -->
-                <div class="sidebar" id="sb-players">
-                    <div class="sb-head">PLAYERS</div>
-                    <div id="list-players"></div>
-                </div>
+            <!-- LEFT -->
+            <div class="sidebar" id="sb-players">
+                <div class="sb-head">PLAYERS</div>
+                <div id="list-players"></div>
+            </div>
 
-                <!-- CENTER: STAGE -->
-                <div id="center-stage">
+            <!-- CENTER -->
+            <div id="center-stage">
+                <div class="game-stack">
                     
                     <!-- 1. HEADER -->
                     <div id="header-row">
                         <div class="info-cell"><div class="info-lbl">HOST</div><div class="info-val" id="inf-host">?</div></div>
                         <div class="info-cell"><div class="info-lbl">CAT</div><div class="info-val" id="inf-cat">?</div></div>
-                        <div class="info-cell"><div class="info-lbl">CODE</div><div class="info-val" id="inf-code" onclick="copyCode()">?</div></div>
+                        <div class="info-cell"><div class="info-lbl">CODE</div><div class="info-val" id="inf-code" onclick="copyCode()" style="cursor:pointer;">?</div></div>
                         <div class="info-cell">
                             <div class="info-lbl">STYLE</div>
                             <select onchange="applySkin(this.value)" style="padding:0; margin:0; height:20px; font-size:0.8rem; background:transparent; color:white;">
@@ -300,11 +317,14 @@
 
                     <!-- 2. JUMBOTRON -->
                     <div id="jumbotron">
-                        <div id="mini-grid">
-                            <!-- JS fills 1-25 -->
+                        <div id="mini-grid-container">
+                            <div id="mini-grid">
+                                <!-- JS fills 1-25 -->
+                            </div>
                         </div>
                         <div id="call-box">
-                            <div class="call-val">--</div>
+                            <div class="call-lbl">NEXT NUMBER</div>
+                            <div class="call-val" id="current-call-text">--</div>
                         </div>
                     </div>
 
@@ -317,82 +337,64 @@
                     <!-- 4. CONTROLS -->
                     <div id="controls-bar">
                         <!-- Host View -->
-                        <button id="btn-call" class="ctrl-btn btn-call" style="display:none;" onclick="hostCall()">CALL NUMBER</button>
+                        <div id="host-btns">
+                            <button class="btn-call" onclick="hostCall()">CALL NEXT NUMBER</button>
+                        </div>
                         
                         <!-- Player View -->
-                        <div id="player-btns" style="display:none; width:100%; gap:10px;">
+                        <div id="player-btns">
                              <button class="ctrl-btn btn-guess" onclick="showGuess()">GUESS</button>
                              <button class="ctrl-btn btn-pass" onclick="passTurn()">PASS</button>
                         </div>
-                        <div id="waiting-msg" style="display:none; color:white; font-size:0.9rem; align-items:center;">
-                            Waiting for turn...
+                        <div id="waiting-msg" style="display:none; color:rgba(255,255,255,0.7); text-align:center; padding:10px;">
+                            Waiting for your turn...
                         </div>
 
                         <!-- Guess Input -->
                         <div id="guess-interface">
                             <input type="text" id="guess-field" placeholder="ANSWER...">
                             <button class="ctrl-btn btn-guess" style="width:100px;" onclick="sendGuess()">SEND</button>
+                            <button class="ctrl-btn btn-pass" style="width:60px;" onclick="cancelGuess()">X</button>
                         </div>
                     </div>
 
                 </div>
-
-                <!-- RIGHT: GUESSES -->
-                <div class="sidebar" id="sb-guesses">
-                    <div class="sb-head">WRONG GUESSES</div>
-                    <div id="list-guesses"></div>
-                </div>
-
             </div>
 
-            <!-- FOOTER: CHAT -->
-            <div id="chat-bar">
-                <input type="text" id="chat-input" placeholder="Chat...">
-                <button id="chat-send" onclick="sendChat()">></button>
+            <!-- RIGHT -->
+            <div class="sidebar" id="sb-guesses">
+                <div class="sb-head">WRONG GUESSES</div>
+                <div id="list-guesses"></div>
             </div>
+
         </div>
+
+        <!-- FOOTER: CHAT -->
+        <div id="chat-bar">
+            <input type="text" id="chat-input" placeholder="Chat...">
+            <button id="chat-send" onclick="sendChat()">SEND</button>
+        </div>
+        <button id="chat-btn-float" onclick="alert('Chat drawer...')">💬</button>
     </div>
 
 <script>
     // --- SKINS ---
-    const SKINS = {
-        vibrant: { bg: '#4c1d95', acc: '#2dd4bf', text: '#fff', tile: '#1e293b' },
-        dark: { bg: '#18181b', acc: '#facc15', text: '#f4f4f5', tile: '#27272a' },
-        retro: { bg: '#0f766e', acc: '#f43f5e', text: '#fff', tile: '#334155' },
-        noir: { bg: '#000000', acc: '#ffffff', text: '#cccccc', tile: '#333333' },
-        cotton: { bg: '#fbcfe8', acc: '#38bdf8', text: '#333333', tile: '#ffffff' }
-    };
+    const SKINS = { vibrant: {bg:'#4c1d95', acc:'#2dd4bf', text:'#fff', tile:'#1e293b'}, dark: {bg:'#18181b', acc:'#facc15', text:'#f4f4f5', tile:'#27272a'} };
+    function applySkin(k) { const s=SKINS[k]||SKINS.vibrant; const r=document.documentElement.style; r.setProperty('--bg-color',s.bg); r.setProperty('--accent',s.acc); r.setProperty('--text-main',s.text); r.setProperty('--tile-off',s.tile); }
 
+    // --- STATE ---
     let myName, roomCode, isHost;
     let client, gameImg = null;
-    let gameState = { host:"", cat:"", ans:"", players:[], guesses:[], revealed:[], turnOrder:[], turnIdx:0 };
+    let gameState = { host:"", cat:"", ans:"", players:[], guesses:[], revealed:[], turnOrder:[], turnIdx:0, status:'WAITING' };
     const BROKER = 'wss://broker.emqx.io:8084/mqtt';
-    const TOPIC_PRE = 'reveal_v4_0';
+    const TOPIC_PRE = 'reveal_v4_2';
 
-    // --- SETUP ---
-    document.addEventListener('DOMContentLoaded', () => {
-        const sOpts = Object.keys(SKINS).map(k => `<option value="${k}">${k.toUpperCase()}</option>`).join('');
-        document.getElementById('host-skin').innerHTML = sOpts;
-        document.getElementById('join-skin').innerHTML = sOpts;
-        
-        // Populate Mini Grid
-        const mg = document.getElementById('mini-grid');
-        for(let i=1; i<=25; i++) {
-            let d = document.createElement('div');
-            d.className='trk-cell'; d.id='trk-'+i; d.innerText=i;
-            mg.appendChild(d);
-        }
-    });
-
-    function applySkin(k) {
-        const s = SKINS[k] || SKINS.vibrant;
-        const r = document.documentElement.style;
-        r.setProperty('--bg-color', s.bg); r.setProperty('--accent', s.acc);
-        r.setProperty('--text-main', s.text); r.setProperty('--tile-off', s.tile);
+    // --- NAV ---
+    function goTo(id) { 
+        document.querySelectorAll('.screen').forEach(s => { s.classList.remove('active'); if(id==='screen-game') s.style.display='none'; });
+        const el = document.getElementById(id); el.classList.add('active'); if(id==='screen-game') el.style.display='grid';
     }
-
-    function goTo(id) { document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
-    function showHostSetup() { goTo('screen-host'); }
+    function showHostSetup() { goTo('screen-host-setup'); }
     function showJoinSetup() { goTo('screen-join-code'); }
 
     // --- HOST ---
@@ -418,104 +420,85 @@
         gameState.host = myName;
         gameState.cat = document.getElementById('game-cat').value;
         gameState.ans = document.getElementById('game-ans').value;
-        gameState.players = [{name:myName}]; // Host is also player? No, host is god.
         roomCode = Math.random().toString(36).substr(2,4).toUpperCase();
         isHost = true;
-        
         startGame();
         connectMQTT();
         setInterval(() => client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'STATE', state:gameState, img:gameImg})), 1000);
     }
 
     // --- JOIN ---
-    function verifyCode() {
-        roomCode = document.getElementById('join-code-input').value.toUpperCase();
-        if(roomCode.length !== 4) return alert("4 Chars");
-        goTo('screen-join-details');
-        document.getElementById('join-room-disp').innerText = "ROOM: " + roomCode;
-        isHost = false;
-        connectMQTT();
+    function searchRoom() {
+        roomCode = document.getElementById('join-code').value.toUpperCase();
+        if(roomCode.length!==4) return alert("4 Chars");
+        document.getElementById('btn-search').innerText = "SEARCHING...";
+        client = mqtt.connect(BROKER);
+        client.on('connect', () => {
+            client.subscribe(`${TOPIC_PRE}/${roomCode}`);
+            client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'REQ_STATE'}));
+        });
+        client.on('message', (t, m) => {
+            const msg = JSON.parse(m.toString());
+            if(msg.type === 'STATE' && document.getElementById('screen-join-code').classList.contains('active')) {
+                gameState = msg.state;
+                if(msg.img) gameImg = msg.img;
+                goTo('screen-join-setup');
+                document.getElementById('join-room-disp').innerText = "ROOM: " + roomCode;
+                document.getElementById('join-host-disp').innerText = "HOST: " + gameState.host;
+                document.getElementById('btn-enter').disabled = false;
+            }
+        });
     }
-    
+
     function enterGame() {
         myName = document.getElementById('join-name').value;
+        if(!myName) return;
         client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'JOIN', name:myName}));
+        isHost = false;
         startGame();
     }
 
     // --- GAME ---
     function startGame() {
         goTo('screen-game');
-        if(isHost) document.getElementById('target-img').src = gameImg;
-        document.getElementById('inf-host').innerText = gameState.host;
         document.getElementById('inf-code').innerText = roomCode;
         
-        // Build Grid (Shuffled)
-        const grid = document.getElementById('tile-grid');
-        grid.innerHTML = '';
+        // Mini Grid
+        const mg = document.getElementById('mini-grid'); mg.innerHTML = '';
+        for(let i=1; i<=25; i++) {
+            let d = document.createElement('div'); d.className='trk-cell'; d.id='trk-'+i; d.innerText=i; mg.appendChild(d);
+        }
+
+        // Board
+        const grid = document.getElementById('tile-grid'); grid.innerHTML = '';
         let nums = Array.from({length:25},(_,i)=>i+1);
         for(let i=nums.length-1; i>0; i--){ const j=Math.floor(Math.random()*(i+1)); [nums[i],nums[j]]=[nums[j],nums[i]]; }
-        
         nums.forEach(n => {
             let t = document.createElement('div');
-            t.className = 'tile';
-            t.dataset.n = n;
-            t.innerText = n;
-            t.onclick = () => {
-                // LOCKOUT LOGIC: Only allow click if number is revealed by host
-                if(gameState.revealed.includes(n)) t.classList.add('revealed');
-                else showToast("Wait for this number to be called!");
-            };
+            t.className = 'tile'; t.innerText = n; t.dataset.n = n;
+            if(n===23) t.style.color = "transparent"; 
+            t.onclick = () => { if(gameState.revealed.includes(n)) t.classList.add('revealed'); else alert("Locked!"); };
             grid.appendChild(t);
         });
 
-        updateControls();
+        if(gameImg) document.getElementById('target-img').src = gameImg;
+        if(isHost) { document.getElementById('host-btns').style.display = 'block'; }
+        if(!isHost) { client.on('message', handleMsg); } else { client.on('message', handleMsg); }
     }
 
-    // --- ACTIONS ---
-    function hostCall() {
-        let avail = [];
-        for(let i=1; i<=25; i++) if(!gameState.revealed.includes(i)) avail.push(i);
-        if(avail.length>0) {
-            let p = avail[Math.floor(Math.random()*avail.length)];
-            gameState.revealed.push(p);
-            // New Round: Shuffle players for guessing order?
-            // For v4.0, let's keep it simple: Calling unlocks grid. Players press guess if they know.
-            gameState.turnOrder = gameState.players.map(p=>p.name).sort(()=>Math.random()-0.5);
-            gameState.turnIdx = 0;
-            sendState();
+    function handleMsg(topic, m) {
+        const msg = JSON.parse(m.toString());
+        if(msg.type === 'STATE') { gameState = msg.state; updateUI(); }
+        if(msg.type === 'JOIN' && isHost) {
+            if(!gameState.players.find(p=>p.name===msg.name)) { gameState.players.push({name:msg.name}); }
         }
     }
 
-    function showGuess() {
-        document.getElementById('player-controls').style.display='none';
-        document.getElementById('guess-interface').style.display='flex';
-    }
-
-    function sendGuess() {
-        let g = document.getElementById('guess-field').value;
-        client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'GUESS', from:myName, txt:g}));
-        // Reset UI
-        document.getElementById('guess-field').value = '';
-        document.getElementById('guess-interface').style.display='none';
-        document.getElementById('player-controls').style.display='flex';
-    }
-    
-    function passTurn() {
-        client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'PASS'}));
-    }
-
-    function sendState() {
-        client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'STATE', state:gameState, img:gameImg}));
-    }
-
     function updateUI() {
-        // Headers
         document.getElementById('inf-host').innerText = gameState.host;
         document.getElementById('inf-cat').innerText = gameState.cat;
 
         // Tracker
-        document.querySelectorAll('.trk-cell').forEach(d => d.classList.remove('active'));
         let last = 0;
         gameState.revealed.forEach(n => {
             document.getElementById('trk-'+n).classList.add('active');
@@ -524,114 +507,60 @@
 
         // Jumbotron
         const box = document.getElementById('call-box');
-        if(last === 23) box.innerHTML = '<div class="pyramid"></div>';
-        else box.innerHTML = `<div class="call-val">${last || '--'}</div>`;
+        if(last === 23) box.innerHTML = '<div class="call-lbl">ILLUMINATI</div><div class="pyramid"></div>';
+        else box.innerHTML = `<div class="call-lbl">CURRENT CALL</div><div class="call-val">${last || '--'}</div>`;
 
-        // Local Tile Unlock (Host auto-reveals on their own board for checking)
-        if(isHost) {
-            document.querySelectorAll('.tile').forEach(t => {
-                if(gameState.revealed.includes(parseInt(t.dataset.n))) t.classList.add('revealed');
-            });
-        }
-        
-        // Lists
+        // Local Tile Update (Auto-reveal for Host convenience?)
+        if(isHost) document.querySelectorAll('.tile').forEach(t => { if(gameState.revealed.includes(parseInt(t.dataset.n))) t.classList.add('revealed'); });
+
+        // Players & Controls
         const pl = document.getElementById('list-players'); pl.innerHTML='';
         gameState.players.forEach(p => {
-            let d = document.createElement('div'); d.className='sb-item'; 
-            d.innerText = p.name;
-            if(gameState.turnOrder[gameState.turnIdx] === p.name) d.classList.add('active-turn');
+            let d = document.createElement('div'); d.className='sb-item'; d.innerText = p.name;
+            if(gameState.status==='GUESSING' && gameState.turnOrder[gameState.turnIdx]===p.name) d.classList.add('active-turn');
             pl.appendChild(d);
         });
-        
-        const gl = document.getElementById('list-guesses'); gl.innerHTML='';
-        gameState.guesses.forEach(g => {
-            let d=document.createElement('div'); d.className='sb-item'; d.innerText=`${g.from}: ${g.txt}`;
-            gl.prepend(d);
-        });
 
-        updateControls();
-    }
-
-    function updateControls() {
-        const hc = document.getElementById('btn-host-call');
-        const pc = document.getElementById('player-controls');
+        const pc = document.getElementById('player-btns');
         const wa = document.getElementById('waiting-msg');
-        const gi = document.getElementById('guess-interface');
         
-        hc.style.display = 'none';
-        pc.style.display = 'none';
-        wa.style.display = 'none';
-        
-        if(isHost) {
-            hc.style.display = 'block';
-        } else {
-            // Player Logic: Only show buttons if it is MY TURN
-            let activePlayer = gameState.turnOrder[gameState.turnIdx];
-            if(activePlayer === myName && gi.style.display === 'none') {
-                pc.style.display = 'flex';
-            } else if (gi.style.display !== 'flex') {
-                wa.style.display = 'flex';
-                wa.innerText = `Waiting for ${activePlayer}...`;
+        if(!isHost) {
+            if(gameState.status === 'GUESSING') {
+                if(gameState.turnOrder[gameState.turnIdx] === myName) {
+                    pc.style.display = 'flex'; wa.style.display = 'none';
+                } else {
+                    pc.style.display = 'none'; wa.style.display = 'block'; wa.innerText = `Waiting for ${gameState.turnOrder[gameState.turnIdx]}...`;
+                }
+            } else {
+                pc.style.display = 'none'; wa.style.display = 'block'; wa.innerText = "Listen for number...";
             }
         }
     }
 
-    // --- MQTT ---
-    function connectMQTT() {
-        client = mqtt.connect(BROKER);
-        const t = `${TOPIC_PRE}/${roomCode}`;
-        client.on('connect', () => client.subscribe(t));
-        client.on('message', (tpc, m) => {
-            const msg = JSON.parse(m.toString());
-            
-            if(msg.type === 'STATE') {
-                gameState = msg.state;
-                if(!isHost) {
-                    if(msg.img && !document.getElementById('target-img').src) document.getElementById('target-img').src = msg.img;
-                    if(document.getElementById('screen-join-details').classList.contains('active')) document.getElementById('join-host-disp').innerText = gameState.host;
-                }
-                updateUI();
-            }
-            if(msg.type === 'JOIN' && isHost) {
-                if(!gameState.players.find(p=>p.name===msg.name)) {
-                    gameState.players.push({name:msg.name});
-                    sendState();
-                }
-            }
-            if(msg.type === 'GUESS' && isHost) {
-                // Check Answer (Fuzzy Logic from v22)
-                if(checkAnswer(msg.txt, gameState.ans) > 0.8) {
-                    alert(`${msg.from} WINS!`); // Placeholder for win logic
-                } else {
-                    gameState.guesses.push({from:msg.from, txt:msg.txt});
-                    advanceTurn();
-                }
-            }
-            if(msg.type === 'PASS' && isHost) {
-                advanceTurn();
-            }
-            if(msg.type === 'CHAT') {
-                // Chat logic
-            }
-        });
+    function hostCall() {
+        let avail = [];
+        for(let i=1; i<=25; i++) if(!gameState.revealed.includes(i)) avail.push(i);
+        if(avail.length>0) {
+            let p = avail[Math.floor(Math.random()*avail.length)];
+            gameState.revealed.push(p);
+            gameState.status = 'GUESSING';
+            // Start turn order logic here if needed or just unlock board
+            gameState.turnOrder = gameState.players.map(p=>p.name);
+            gameState.turnIdx = 0;
+            sendState();
+        }
     }
 
-    function advanceTurn() {
-        gameState.turnIdx = (gameState.turnIdx + 1) % gameState.players.length;
-        sendState();
+    function showGuess() { document.getElementById('player-btns').style.display='none'; document.getElementById('guess-interface').style.display='flex'; }
+    function cancelGuess() { document.getElementById('guess-interface').style.display='none'; document.getElementById('player-btns').style.display='flex'; }
+    function passTurn() { client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'PASS'})); }
+    function sendState() { client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'STATE', state:gameState, img:gameImg})); }
+    function sendGuess() {
+        let g = document.getElementById('guess-field').value;
+        if(g) client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'GUESS', from:myName, txt:g}));
+        cancelGuess();
     }
-    
-    // Fuzzy Check Re-inserted
-    function checkAnswer(input, answer) {
-        if(!input || !answer) return 0;
-        let s = input.toLowerCase().trim(), t = answer.toLowerCase().trim();
-        if(s===t) return 1;
-        // Simple approximation
-        return s.includes(t) || t.includes(s) ? 0.9 : 0;
-    }
-
-    function copyCode() { navigator.clipboard.writeText(roomCode); showToast("Code Copied!"); }
-    function showToast(m) { const t=document.getElementById('toast'); t.innerText=m; t.style.display='block'; setTimeout(()=>t.style.display='none',2000); }
+    function copyCode() { navigator.clipboard.writeText(roomCode); alert('Copied!'); }
 
 </script>
 </body>
