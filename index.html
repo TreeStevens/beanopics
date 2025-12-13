@@ -1,37 +1,18 @@
 <!DOCTYPE html>
 <html lang="en">
 <!-- 
-    REVEAL! v4.4 – Layout-Stable Build
+    REVEAL! v4.5 – Layout polish
 
-    GOAL OF THIS BUILD
-    - Host & join flows work (HOST GAME / JOIN GAME).
-    - Game screen matches wireframe: players | header+board | guesses.
-    - Card tiles form a seamless 5×5 blanket (NO LINES, NO GAPS).
-    - Tiles only uncover when the player clicks them AND the number was called.
-    - Guess bar doesn’t make the layout jump.
-    - Fuzzy matching + “Close!” hints are in place but TURN ORDER is still simple.
-
-    TURN / ROUND LOGIC (CURRENT BUILD)
-    - Host:
-      - Never guesses.
-      - Presses CALL to select a new random unrevealed number (1–25).
-      - CALL updates the mini-grid and "CURRENT CALL" display.
-    - Players:
-      - See numbers called.
-      - Click tiles to uncover only if that number has been called.
-      - May hit GUESS or PASS at any time (turn order enforcement comes later).
-
-    FUZZY MATCHING (ACTIVE)
-    - Sanitize: remove spaces, uppercase.
-    - Levenshtein similarity:
-      - >= 90%: WIN → board fully revealed, winner announced.
-      - 50–89%: "Close! XX% match" toast ONLY for that player; guess logged publicly.
-      - < 50%: just logged as wrong, no hint.
+    CHANGES FROM v4.4
+    - Mini called-number grid is now a single solid panel with dim numbers that "light up".
+    - Removed aspect-ratio on mini-grid so the bottom row never gets cut.
+    - Slight spacing tweaks on header/jumbotron.
+    - Controls bar made more robust when switching to GUESS mode (no layout freakout).
 -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>REVEAL! v4.4</title>
+    <title>REVEAL! v4.5</title>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
 
@@ -133,7 +114,7 @@
         /* [D] HEADER ROW ----------------------------------------------------- */
         #header-row {
             display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 4px;
-            background: var(--panel-bg); padding: 5px; border-radius: 6px;
+            background: var(--panel-bg); padding: 6px 5px 5px; border-radius: 6px;
         }
         .info-cell { text-align: center; overflow: hidden; }
         .info-lbl { font-size: 0.5rem; opacity: 0.6; font-weight: 900; text-transform: uppercase; }
@@ -143,23 +124,42 @@
         /* [E] JUMBOTRON ------------------------------------------------------ */
         #jumbotron {
             display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
-            height: 160px;
+            height: 180px; /* a bit taller so everything breathes / no crop */
         }
+
+        /* Called numbers panel */
         #mini-grid-container {
-            background: black; border: 2px solid white; border-radius: 8px;
-            display: flex; align-items: center; justify-content: center; padding: 5px;
+            background: #020617;           /* solid slate-ish */
+            border: 2px solid white;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 6px;
         }
         #mini-grid {
-            display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px;
-            width: 100%; aspect-ratio: 1/1;
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            grid-template-rows: repeat(5, 1fr);
+            gap: 0;                         /* no internal seams */
+            width: 100%;
+            height: 100%;                  /* fill the container, no aspect-ratio */
         }
         .trk-cell {
-            background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.3);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 0.6rem; border-radius: 2px; font-weight: bold;
+            background: transparent;        /* solid panel behind, no little boxes */
+            color: rgba(148,163,184,0.9);   /* dim gray-blue numbers by default */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            font-weight: 800;
         }
-        .trk-cell.active { background: var(--accent); color: black; }
+        .trk-cell.active {
+            color: var(--accent);           /* "lit" number */
+            text-shadow: 0 0 8px var(--accent);
+        }
 
+        /* Current call panel */
         #call-box {
             background: black; border: 2px solid white; border-radius: 8px;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -193,13 +193,12 @@
             z-index: 1;
         }
 
-        /* IMPORTANT: seamless 5×5 blanket, NO gaps, NO tile borders */
         #tile-grid {
             position: absolute; inset: 0; z-index: 10;
             display: grid;
             grid-template-columns: repeat(5, 1fr);
             grid-template-rows: repeat(5, 1fr);
-            gap: 0;                 /* no seams */
+            gap: 0;                 /* seamless blanket */
         }
         .tile {
             background: var(--tile-off);
@@ -212,7 +211,6 @@
             cursor: pointer;
             user-select: none;
             transition: opacity 0.2s;
-            /* NO border, NO box-shadow here – keeps the blanket perfect */
         }
         .tile.locked { cursor: not-allowed; opacity: 1 !important; }
         .tile.revealed { opacity: 0; pointer-events: none; }
@@ -221,17 +219,23 @@
         /* [G] CONTROLS BAR (STABLE HEIGHT) ---------------------------------- */
         #controls-bar {
             width: 100%;
-            height: 60px;              /* fixed height – no vertical jump */
+            height: 60px;
             display: flex;
             align-items: stretch;
             gap: 8px;
+            min-width: 0;
+        }
+
+        #host-btns,
+        #player-btns,
+        #guess-interface {
+            flex: 1 1 auto;
+            min-width: 0;  /* prevents flex overflow when switching views */
         }
 
         /* Host CALL block */
         #host-btns {
-            width: 100%;
             display: none;
-            flex: 1;
         }
         .btn-call { 
             width: 100%; height: 100%; border-radius: 8px; border: none;
@@ -242,13 +246,11 @@
 
         /* Player buttons block */
         #player-btns {
-            width: 100%;
             display: none;
             gap: 10px;
-            flex: 1;
         }
         .ctrl-btn {
-            flex: 1;
+            flex: 1 1 auto;
             height: 100%;
             border-radius: 8px;
             border: none;
@@ -261,16 +263,14 @@
         .btn-guess { background: var(--accent); color: black; }
         .btn-pass { background: #ef4444; color: white; }
 
-        /* Guess interface sits in the same bar – swaps with player-btns */
+        /* Guess interface swaps in place of player buttons */
         #guess-interface {
             display: none;
-            width: 100%;
             gap: 5px;
             height: 100%;
-            flex: 1;
         }
         #guess-field { 
-            flex: 1;
+            flex: 1 1 auto;
             height: 100%;
             padding: 0 15px;
             border-radius: 8px;
@@ -280,14 +280,18 @@
             outline: none;
             background: white;
             color: black;
+            min-width: 0;
         }
+        #guess-interface .ctrl-btn.btn-guess { flex: 0 0 110px; }
+        #guess-interface .ctrl-btn.btn-pass  { flex: 0 0 60px; }
 
         #waiting-msg {
             flex: 0 0 auto;
             text-align: center;
             font-size: 0.9rem;
             color: rgba(255,255,255,0.7);
-            padding: 0 8px;
+            padding: 0 4px;
+            display: block;
         }
 
         /* [H] CHAT (placeholder) -------------------------------------------- */
@@ -340,7 +344,7 @@
     <!-- [S1] LOBBY ---------------------------------------------------------- -->
     <div id="screen-lobby" class="screen active">
         <div class="card-panel">
-            <h1>REVEAL! v4.4</h1>
+            <h1>REVEAL! v4.5</h1>
             <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
                 <button class="big-btn" onclick="showHostSetup()">HOST GAME</button>
                 <div style="opacity:0.5; margin:5px 0;">OR</div>
@@ -439,8 +443,8 @@
                         <div id="waiting-msg">Listen for number...</div>
                         <div id="guess-interface">
                             <input type="text" id="guess-field" placeholder="ANSWER...">
-                            <button class="ctrl-btn btn-guess" style="width:100px;" onclick="sendGuess()">SEND</button>
-                            <button class="ctrl-btn btn-pass" style="width:60px;" onclick="cancelGuess()">X</button>
+                            <button class="ctrl-btn btn-guess" onclick="sendGuess()">SEND</button>
+                            <button class="ctrl-btn btn-pass" onclick="cancelGuess()">X</button>
                         </div>
                     </div>
                 </div>
@@ -497,7 +501,7 @@
         winner: ""
     };
 
-    const BROKER   = 'wss://broker.emqx.io:8084/mqtt';
+    const BROKER    = 'wss://broker.emqx.io:8084/mqtt';
     const TOPIC_PRE = 'reveal_v4_2';
 
     /* [L] NAV HELPERS ------------------------------------------------------- */
@@ -555,7 +559,6 @@
         connectMQTT();
         startGame();
         sendState();
-        // Periodic sync; no disconnect watchdog.
         setInterval(() => {
             if (client && client.connected && isHost) sendState();
         }, 2000);
@@ -597,7 +600,7 @@
             mg.appendChild(d);
         }
 
-        // Card tiles (seamless 5×5 blanket)
+        // Card tiles
         const grid = document.getElementById('tile-grid');
         grid.innerHTML = '';
         let nums = Array.from({length: 25}, (_, i) => i + 1);
@@ -627,11 +630,14 @@
         if (isHost) {
             document.getElementById('host-btns').style.display   = 'block';
             document.getElementById('player-btns').style.display = 'none';
+            document.getElementById('waiting-msg').style.display = 'block';
         } else {
             document.getElementById('host-btns').style.display   = 'none';
             document.getElementById('player-btns').style.display = 'flex';
+            document.getElementById('waiting-msg').style.display = 'block';
         }
 
+        document.getElementById('guess-interface').style.display = 'none';
         updateUI();
     }
 
@@ -714,7 +720,6 @@
             lg.appendChild(d);
         });
 
-        // Winner overlay could go here later; for now we just stop CALL on win
         if (gameState.status === 'WIN') {
             const btn = document.querySelector('.btn-call');
             if (btn) btn.disabled = true;
@@ -744,6 +749,7 @@
         pb.style.display = 'none';
         wm.style.display = 'none';
         gi.style.display = 'flex';
+        document.getElementById('guess-field').focus();
     }
     function cancelGuess() {
         const pb = document.getElementById('player-btns');
@@ -809,18 +815,14 @@
 
     function handleIncomingGuessAsHost(msg) {
         const pct = similarityPercent(msg.txt, gameState.ans);
-        // Log guess publicly (text only)
         gameState.guesses.push({from: msg.from, txt: msg.txt});
 
         if (pct >= 90) {
-            // WIN
             gameState.status = 'WIN';
             gameState.winner = msg.from;
-            // Reveal all tiles
             gameState.revealed = Array.from({length: 25}, (_, i) => i + 1);
             sendState();
         } else {
-            // Close hint (private)
             if (pct >= 50) {
                 client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'HINT', to: msg.from, pct}));
             }
