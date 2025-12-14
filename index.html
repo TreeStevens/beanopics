@@ -1,270 +1,280 @@
 <!DOCTYPE html>
 <html lang="en">
 <!--
-  REVEAL! v4.7 – Clean rebuild (known-good)
+  REVEAL! v4.7.1 — Turn enforcement + win overlay + per-player % + skin fixes
 
-  FIXES vs your broken v4.6 file:
-  - No stray braces, no duplicated functions, no mangled strings.
-  - Host is NOT added as a player (ever).
-  - Players ALWAYS see GUESS/PASS when it's their turn.
-  - Turn highlighting works (left player list + STATUS line).
-  - Jumbotron boxes are SQUARE (mini-grid + call box), not stretched rectangles.
-  - Style dropdown reflects the current selection (synced across screens).
-  - Restores themed skin names (Dark Academia, Art Deco, etc.).
+  FIXES IN THIS BUILD
+  - Host is NOT added as a player.
+  - Only ACTIVE player sees GUESS/PASS.
+  - Turn auto-advances after PASS or after any (wrong) GUESS.
+  - Guess box no longer vanishes / no typed text loss (UI won’t stomp the pane while typing).
+  - Wrong guesses list shows %:
+      • Players see ONLY their own guesses (+%)
+      • Host sees ALL guesses (+%)
+      • Correct guess is NOT added to the sidebar.
+  - Win screen overlay:
+      NAME wins!
+      They guessed: ANSWER
+      Revealed picture
+      60% opaque backdrop + fireworks
+      Stays until click.
+  - Skin dropdown reflects the user’s chosen skin (and keeps the cool names).
+  - Category moved right above the main card.
+  - Jumbotron proportions kept (two equal panels).
+  - Current call anim + 23 pyramid easter egg restored.
 -->
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>REVEAL! v4.7</title>
+  <title>REVEAL! v4.7.1</title>
 
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet" />
 
   <style>
     :root{
-      --bg-color:#111827;
-      --panel-bg: rgba(255,255,255,0.06);
+      --bg-color:#4c1d95;
+      --panel-bg:rgba(0,0,0,0.25);
       --accent:#2dd4bf;
       --text-main:#ffffff;
       --font-head:'Fredoka One', cursive;
       --font-body:'Nunito', sans-serif;
-      --tile-off:#374151;
-      --card-max-width: 460px;
+      --tile-off:#1e293b;
+      --card-max-width:450px;
     }
 
     *{ box-sizing:border-box; }
     body{
-      margin:0; height:100vh; width:100vw;
+      margin:0; padding:0; height:100vh; width:100vw;
       background:var(--bg-color); color:var(--text-main);
       font-family:var(--font-body);
-      overflow:hidden;
+      display:flex; flex-direction:column; overflow:hidden;
+      transition:background .25s ease;
     }
 
-    /* Screens */
+    /* SCREENS */
     .screen{
       position:absolute; inset:0;
-      display:flex; align-items:center; justify-content:center;
-      background:var(--bg-color);
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      background:var(--bg-color); z-index:10;
+      transition:transform .3s ease;
       transform:translateX(100%);
-      transition:transform .25s ease;
-      z-index:10;
     }
     .screen.active{ transform:translateX(0); z-index:20; }
 
     .card-panel{
-      width:92%; max-width:420px;
-      background:rgba(255,255,255,0.08);
-      border:2px solid rgba(255,255,255,0.18);
-      border-radius:18px;
-      padding:22px;
+      background:rgba(255,255,255,0.10);
       backdrop-filter: blur(10px);
-      box-shadow:0 18px 50px rgba(0,0,0,0.35);
+      padding:25px; border-radius:20px; width:90%; max-width:420px;
+      border:2px solid rgba(255,255,255,0.18);
       text-align:center;
+      box-shadow:0 10px 30px rgba(0,0,0,0.3);
     }
 
+    .control-group{ margin-bottom:15px; text-align:left; width:100%; }
     label{
-      display:block;
-      font-weight:900;
-      margin:10px 0 6px;
-      font-size:.78rem;
-      text-transform:uppercase;
-      opacity:.75;
-      text-align:left;
+      display:block; font-weight:900; margin-bottom:5px; font-size:.8rem;
+      text-transform:uppercase; opacity:.85;
     }
     input, select{
-      width:100%;
-      padding:12px;
-      border-radius:12px;
-      border:none;
-      outline:none;
-      font-weight:800;
-      font-size:1rem;
-      background:#f8fafc;
-      color:#111827;
+      width:100%; padding:12px; border-radius:10px; border:none;
+      font-family:var(--font-body); font-weight:800; font-size:1.05rem;
+      background:#f8fafc; color:#0f172a; outline:none;
     }
-
     .code-input{
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      letter-spacing:6px;
-      text-align:center;
+      font-family:'Courier New', monospace;
+      letter-spacing:5px; text-align:center; font-size:1.5rem;
       text-transform:uppercase;
-      font-size:1.4rem;
     }
 
     .big-btn{
-      width:100%;
-      margin-top:12px;
-      padding:14px;
-      border-radius:14px;
-      border:none;
-      cursor:pointer;
-      font-family:var(--font-head);
-      font-size:1.15rem;
-      background:var(--accent);
-      color:#000;
-      box-shadow:0 6px 0 rgba(0,0,0,0.22);
-      transition:transform .08s;
+      width:100%; padding:15px; border-radius:12px; border:none;
+      font-family:var(--font-head); font-size:1.2rem; cursor:pointer;
+      background:var(--accent); color:#000;
+      box-shadow:0 5px 0 rgba(0,0,0,0.2);
+      margin-top:5px;
+      transition:transform .1s;
     }
-    .big-btn:active{ transform:translateY(3px); box-shadow:none; }
-    .big-btn.secondary{
-      background:rgba(255,255,255,0.18);
-      color:#fff;
-      box-shadow:none;
-      font-family:var(--font-body);
-      font-weight:900;
-      font-size:1rem;
-    }
-    .big-btn:disabled{
-      background:#64748b; color:#0b1220;
-      cursor:not-allowed; opacity:.75;
-      box-shadow:none;
-    }
+    .big-btn:active{ transform:translateY(2px); box-shadow:none; }
+    .big-btn:disabled{ background:#64748b; cursor:not-allowed; box-shadow:none; opacity:.75; }
+    .big-btn.secondary{ background:rgba(255,255,255,0.2); color:#fff; }
 
-    /* Game layout */
+    /* GAME LAYOUT */
     #screen-game{
       display:grid;
       grid-template-rows: 1fr 60px;
+      height:100%; width:100%;
       padding:0;
+      background:var(--bg-color);
     }
-
     #game-layout{
       display:grid;
-      grid-template-columns: 220px 1fr 220px;
-      height:100%;
+      grid-template-columns:200px 1fr 200px;
       overflow:hidden;
     }
-
     .sidebar{
       background:var(--panel-bg);
-      border-left:1px solid rgba(255,255,255,0.06);
-      border-right:1px solid rgba(255,255,255,0.06);
+      border-left:1px solid rgba(255,255,255,0.05);
+      border-right:1px solid rgba(255,255,255,0.05);
+      display:flex; flex-direction:column;
       padding:10px;
-      overflow:auto;
+      overflow-y:auto;
     }
     .sb-head{
       font-family:var(--font-head);
-      opacity:.6;
-      font-size:.9rem;
       text-align:center;
-      margin:4px 0 10px;
+      opacity:.6;
+      margin-bottom:10px;
+      font-size:.9rem;
     }
     .sb-item{
-      font-size:.88rem;
+      font-size:.85rem;
       padding:8px;
-      border-bottom:1px solid rgba(255,255,255,0.06);
+      border-bottom:1px solid rgba(255,255,255,0.05);
       word-break:break-word;
-      opacity:.92;
     }
     .sb-item.active-turn{
-      background:rgba(255,255,255,0.14);
+      background:rgba(255,255,255,0.18);
       border-left:4px solid var(--accent);
-      padding-left:10px;
-      font-weight:900;
-      opacity:1;
     }
 
     #center-stage{
-      display:flex;
-      justify-content:flex-start;
+      display:flex; flex-direction:column;
       padding:10px;
-      overflow:auto;
+      overflow-y:auto;
+      align-items:center;
     }
 
     .game-stack{
       width:100%;
       max-width:var(--card-max-width);
-      margin:0 auto;
-      display:flex;
-      flex-direction:column;
-      gap:10px;
+      display:flex; flex-direction:column;
+      gap:8px;
     }
 
-    /* Header */
+    /* HEADER */
     #header-row{
       display:grid;
       grid-template-columns: 1fr 1fr;
-      gap:6px;
-      padding:8px;
-      border-radius:10px;
+      gap:4px;
       background:var(--panel-bg);
+      padding:6px 5px 5px;
+      border-radius:6px;
     }
     .info-cell{ text-align:center; overflow:hidden; }
-    .info-lbl{
-      font-size:.55rem;
-      opacity:.6;
-      font-weight:900;
-      text-transform:uppercase;
-    }
-    .info-val{
-      font-size:.86rem;
-      font-weight:900;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
+    .info-lbl{ font-size:.5rem; opacity:.6; font-weight:900; text-transform:uppercase; }
+    .info-val{ font-weight:900; font-size:.82rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     #inf-code{
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-family:'Courier New', monospace;
       cursor:pointer;
       background:rgba(255,255,255,0.10);
-      border-radius:8px;
-      padding:2px 6px;
-      display:inline-block;
+      border-radius:4px;
     }
     #info-status{ grid-column:1 / -1; }
     #inf-status{ font-weight:900; }
 
-    /* JUMBOTRON (square panels, never stretched) */
+    /* CATEGORY STRIP (moved above card) */
+    #cat-strip{
+      background:rgba(0,0,0,0.35);
+      border:1px solid rgba(255,255,255,0.12);
+      border-radius:8px;
+      padding:8px 10px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    #cat-left{
+      display:flex; flex-direction:column;
+      align-items:flex-start;
+      min-width:0;
+    }
+    #cat-lbl{
+      font-size:.55rem;
+      opacity:.7;
+      font-weight:900;
+      text-transform:uppercase;
+      letter-spacing:1px;
+    }
+    #cat-val{
+      font-weight:900;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      max-width:260px;
+    }
+    #me-badge{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      background:rgba(255,255,255,0.12);
+      border-radius:999px;
+      padding:6px 10px;
+      font-weight:900;
+      font-size:.85rem;
+      white-space:nowrap;
+    }
+    #me-dot{
+      width:10px; height:10px;
+      border-radius:50%;
+      background:var(--accent);
+      box-shadow:0 0 10px var(--accent);
+    }
+
+    /* JUMBOTRON */
     #jumbotron{
       display:grid;
       grid-template-columns: 1fr 1fr;
-      gap:10px;
-      align-items:stretch;
+      gap:8px;
+      height:180px;
     }
-    #mini-grid-container,
-    #call-box{
-      aspect-ratio: 1 / 1;
-      border-radius:12px;
-      border:2px solid rgba(255,255,255,0.9);
-      overflow:hidden;
-      background:#000;
+
+    #mini-grid-container{
+      background:#020617;
+      border:2px solid #fff;
+      border-radius:8px;
       display:flex;
       align-items:center;
       justify-content:center;
-    }
-    #mini-grid-container{
-      background:#020617;
-      padding:8px;
+      padding:6px;
     }
     #mini-grid{
-      width:100%; height:100%;
       display:grid;
-      grid-template-columns:repeat(5, 1fr);
-      grid-template-rows:repeat(5, 1fr);
+      grid-template-columns: repeat(5,1fr);
+      grid-template-rows: repeat(5,1fr);
+      width:100%;
+      height:100%;
       gap:0;
     }
     .trk-cell{
+      background:transparent;
+      color:rgba(148,163,184,0.9);
       display:flex;
       align-items:center;
       justify-content:center;
+      font-size:.7rem;
       font-weight:900;
-      font-size:.82rem;
-      color: rgba(148,163,184,0.9);
     }
     .trk-cell.active{
-      color: var(--accent);
-      text-shadow: 0 0 10px var(--accent);
+      color:var(--accent);
+      text-shadow:0 0 8px var(--accent);
     }
 
     #call-box{
-      position:relative;
       background:#000;
+      border:2px solid #fff;
+      border-radius:8px;
+      display:flex;
       flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      position:relative;
+      overflow:hidden;
     }
     .call-lbl{
       position:absolute;
-      top:8px;
-      font-size:.72rem;
-      font-weight:900;
+      top:6px;
+      font-size:.7rem;
       opacity:.55;
       text-transform:uppercase;
       letter-spacing:1px;
@@ -272,69 +282,74 @@
     .call-val{
       font-family:var(--font-head);
       font-size:5rem;
+      color:#fff;
       line-height:1;
+      animation: pop .2s ease;
     }
+    @keyframes pop { 0%{transform:scale(.6); opacity:.4;} 100%{transform:scale(1); opacity:1;} }
 
     .pyramid{
       width:0; height:0;
-      border-left:52px solid transparent;
-      border-right:52px solid transparent;
-      border-bottom:82px solid #fbbf24;
+      border-left:45px solid transparent;
+      border-right:45px solid transparent;
+      border-bottom:70px solid #fbbf24;
       position:relative;
-      margin-top:18px;
+      margin-top:10px;
+      filter: drop-shadow(0 0 10px rgba(251,191,36,0.25));
+      animation: pop .2s ease;
     }
     .pyramid::after{
       content:'23';
       position:absolute;
-      bottom:-74px;
-      left:-20px;
-      font-family:var(--font-head);
-      font-weight:900;
-      font-size:1.7rem;
+      bottom:-65px;
+      left:-18px;
       color:#000;
+      font-weight:900;
+      font-family:var(--font-head);
+      font-size:1.5rem;
     }
 
-    /* Card */
+    /* CARD */
     #card-wrapper{
       width:100%;
       aspect-ratio:1/1;
       position:relative;
-      border-radius:12px;
-      border:4px solid rgba(255,255,255,0.92);
-      overflow:hidden;
       background:#000;
-      box-shadow:0 16px 60px rgba(0,0,0,0.45);
+      border:4px solid #fff;
+      border-radius:8px;
+      box-shadow:0 10px 40px rgba(0,0,0,0.4);
+      overflow:hidden;
     }
     #target-img{
-      position:absolute; inset:0;
       width:100%; height:100%;
       object-fit:cover;
+      position:absolute; inset:0;
       z-index:1;
     }
     #tile-grid{
       position:absolute; inset:0;
       z-index:10;
       display:grid;
-      grid-template-columns:repeat(5, 1fr);
-      grid-template-rows:repeat(5, 1fr);
+      grid-template-columns: repeat(5,1fr);
+      grid-template-rows: repeat(5,1fr);
       gap:0;
     }
     .tile{
+      background:var(--tile-off);
+      color:rgba(255,255,255,0.35);
       display:flex;
       align-items:center;
       justify-content:center;
-      background:var(--tile-off);
       font-family:var(--font-head);
-      font-size:2.0rem;
-      color:rgba(255,255,255,0.33);
-      user-select:none;
+      font-size:2rem;
       cursor:pointer;
-      transition: opacity .18s ease;
+      user-select:none;
+      transition: opacity .2s ease;
     }
     .tile.revealed{ opacity:0; pointer-events:none; }
     .tile[data-n="23"]{ color:transparent; }
 
-    /* Controls: one pane at a time */
+    /* CONTROLS BAR */
     #controls-bar{
       width:100%;
       height:60px;
@@ -343,115 +358,238 @@
     #host-btns, #player-btns, #guess-interface, #waiting-msg{
       position:absolute; inset:0;
       width:100%; height:100%;
-      display:none;
-      align-items:center;
-      justify-content:center;
-      gap:10px;
     }
-    #host-btns.show{ display:flex; }
-    #player-btns.show{ display:flex; }
-    #guess-interface.show{ display:flex; }
-    #waiting-msg.show{ display:flex; }
+
+    #host-btns{ display:none; }
+    #host-btns.show{ display:block; }
 
     .btn-call{
       width:100%; height:100%;
+      border-radius:8px;
       border:none;
-      border-radius:12px;
+      background:#fff;
+      color:#000;
       font-family:var(--font-head);
       font-size:1.5rem;
       cursor:pointer;
-      background:#fff;
-      color:#000;
-      box-shadow:0 5px 0 rgba(0,0,0,0.25);
+      box-shadow:0 4px 0 #999;
     }
     .btn-call:active{ transform:translateY(4px); box-shadow:none; }
-    .btn-call:disabled{ opacity:.6; cursor:not-allowed; }
+    .btn-call:disabled{ opacity:.55; cursor:not-allowed; }
+
+    #player-btns{ display:none; gap:10px; }
+    #player-btns.show{ display:flex; }
 
     .ctrl-btn{
+      flex:1 1 auto;
       height:100%;
+      border-radius:8px;
       border:none;
-      border-radius:12px;
       font-family:var(--font-head);
       font-size:1.2rem;
       cursor:pointer;
-      box-shadow:0 5px 0 rgba(0,0,0,0.28);
-      flex:1 1 auto;
+      box-shadow:0 4px 0 rgba(0,0,0,0.3);
     }
     .ctrl-btn:active{ transform:translateY(4px); box-shadow:none; }
     .btn-guess{ background:var(--accent); color:#000; }
     .btn-pass{ background:#ef4444; color:#fff; }
 
+    #guess-interface{ display:none; gap:6px; }
+    #guess-interface.show{ display:flex; }
+
     #guess-field{
-      height:100%;
-      border:none;
-      border-radius:12px;
-      outline:none;
-      padding:0 14px;
-      font-weight:900;
-      font-size:1.15rem;
       flex:1 1 auto;
-      min-width:0;
+      height:100%;
+      padding:0 15px;
+      border-radius:8px;
+      border:none;
+      font-size:1.2rem;
       text-align:center;
+      outline:none;
       background:#fff;
       color:#000;
+      min-width:0;
+      font-weight:900;
     }
-    #guess-send{ flex:0 0 120px; }
-    #guess-cancel{ flex:0 0 70px; }
+    #guess-interface .ctrl-btn.btn-guess{ flex:0 0 110px; }
+    #guess-interface .ctrl-btn.btn-pass{ flex:0 0 60px; }
 
     #waiting-msg{
-      font-weight:900;
-      color:rgba(255,255,255,0.72);
-      pointer-events:none;
-      padding:0 10px;
+      display:none;
+      align-items:center;
+      justify-content:center;
       text-align:center;
+      font-size:.95rem;
+      color:rgba(255,255,255,0.75);
+      padding:0 6px;
+      pointer-events:none;
+      font-weight:900;
     }
+    #waiting-msg.show{ display:flex; }
 
-    /* Footer chat placeholder */
+    /* CHAT PLACEHOLDER */
     #chat-bar{
-      background:rgba(0,0,0,0.40);
-      border-top:1px solid rgba(255,255,255,0.08);
+      background:rgba(0,0,0,0.4);
+      padding:10px;
       display:flex;
       gap:10px;
       align-items:center;
-      padding:10px;
+      border-top:1px solid rgba(255,255,255,0.1);
     }
-    #chat-input{ flex:1; padding:10px; border-radius:10px; border:none; outline:none; }
-    #chat-send{ width:70px; padding:10px; border-radius:10px; border:none; cursor:pointer; font-weight:900; }
+    #chat-input{
+      flex:1;
+      padding:10px;
+      border-radius:8px;
+      border:none;
+      font-family:var(--font-body);
+      outline:none;
+      margin:0;
+    }
+    #chat-send{
+      width:70px;
+      border-radius:8px;
+      border:none;
+      background:#3b82f6;
+      color:#fff;
+      font-weight:900;
+      cursor:pointer;
+    }
+    #chat-btn-float{
+      position:fixed;
+      bottom:80px;
+      right:20px;
+      width:50px;
+      height:50px;
+      background:#fff;
+      border-radius:50%;
+      font-size:1.5rem;
+      border:none;
+      box-shadow:0 4px 10px rgba(0,0,0,0.3);
+      z-index:50;
+      display:none;
+    }
 
-    /* Toast */
+    /* TOAST */
     #toast{
       position:fixed;
-      bottom:88px;
+      bottom:90px;
       left:50%;
       transform:translateX(-50%);
       background:rgba(15,23,42,0.96);
       color:#fbbf24;
       padding:10px 16px;
       border-radius:999px;
+      font-size:.9rem;
       font-weight:900;
-      opacity:0;
-      transition:opacity .18s ease;
-      pointer-events:none;
       z-index:999;
+      opacity:0;
+      pointer-events:none;
+      transition:opacity .2s ease;
     }
     #toast.show{ opacity:1; }
 
-    @media (max-width: 900px){
-      #game-layout{ grid-template-columns: 1fr; }
+    /* WIN OVERLAY (click to dismiss) */
+    #win-overlay{
+      position:fixed;
+      inset:0;
+      z-index:1000;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:20px;
+    }
+    #win-overlay.show{ display:flex; }
+
+    #win-backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,0.60);
+      backdrop-filter: blur(2px);
+    }
+
+    #win-card{
+      position:relative;
+      width:min(520px, 92vw);
+      background:rgba(255,255,255,0.10);
+      border:2px solid rgba(255,255,255,0.20);
+      border-radius:18px;
+      padding:18px;
+      box-shadow:0 20px 60px rgba(0,0,0,0.45);
+      text-align:center;
+      overflow:hidden;
+    }
+
+    #win-title{
+      font-family:var(--font-head);
+      font-size:2rem;
+      margin:6px 0 4px;
+    }
+    #win-sub{
+      font-weight:900;
+      opacity:.9;
+      margin-bottom:12px;
+    }
+    #win-img{
+      width:100%;
+      aspect-ratio:1/1;
+      border-radius:12px;
+      border:2px solid rgba(255,255,255,0.25);
+      object-fit:cover;
+      display:block;
+    }
+    #win-hint{
+      margin-top:10px;
+      font-weight:900;
+      opacity:.8;
+      font-size:.9rem;
+    }
+
+    /* Fireworks (simple burst particles) */
+    .fw{
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      overflow:hidden;
+    }
+    .spark{
+      position:absolute;
+      width:6px;
+      height:6px;
+      border-radius:50%;
+      background:var(--accent);
+      opacity:0;
+      animation: burst 1.1s ease-in-out infinite;
+      filter: drop-shadow(0 0 10px rgba(255,255,255,0.20));
+    }
+    @keyframes burst{
+      0%{ transform:translate(0,0) scale(.2); opacity:0; }
+      10%{ opacity:1; }
+      70%{ opacity:.9; }
+      100%{ transform:translate(var(--dx), var(--dy)) scale(1.2); opacity:0; }
+    }
+
+    .hidden{ display:none !important; }
+
+    @media (max-width: 800px){
+      #game-layout{ grid-template-columns:1fr; }
       .sidebar{ display:none; }
+      #chat-bar{ display:none; }
+      #chat-btn-float{ display:block; }
+      #cat-val{ max-width: 180px; }
     }
   </style>
 </head>
 
 <body>
+
   <!-- LOBBY -->
   <div id="screen-lobby" class="screen active">
     <div class="card-panel">
-      <h1 style="margin:0; font-family:var(--font-head);">REVEAL! v4.7</h1>
-      <div style="display:flex; flex-direction:column; gap:10px; margin-top:16px;">
+      <h1>REVEAL! v4.7.1</h1>
+      <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
         <button class="big-btn" onclick="showHostSetup()">HOST GAME</button>
-        <div style="opacity:.55; font-weight:900;">OR</div>
-        <button class="big-btn secondary" onclick="showJoinCode()">JOIN GAME</button>
+        <div style="opacity:0.5; margin:5px 0;">OR</div>
+        <button class="big-btn secondary" onclick="showJoinSetup()">JOIN GAME</button>
       </div>
     </div>
   </div>
@@ -459,97 +597,74 @@
   <!-- HOST SETUP -->
   <div id="screen-host-setup" class="screen">
     <div class="card-panel">
-      <h2 style="margin:0 0 6px;">GAME SETUP</h2>
+      <h2>GAME SETUP</h2>
 
-      <label>HOST NAME</label>
-      <input id="host-name" type="text" placeholder="Name">
+      <div class="control-group">
+        <label>HOST NAME</label>
+        <input type="text" id="host-name" placeholder="Name">
+      </div>
 
-      <label>CATEGORY</label>
-      <input id="game-cat" type="text" placeholder="e.g. Landmarks">
+      <div class="control-group">
+        <label>CATEGORY</label>
+        <input type="text" id="game-cat" placeholder="e.g. 80s Movies">
+      </div>
 
-      <label>ANSWER</label>
-      <input id="game-ans" type="text" placeholder="Secret Answer">
+      <div class="control-group">
+        <label>ANSWER</label>
+        <input type="text" id="game-ans" placeholder="Secret Answer">
+      </div>
 
-      <label>IMAGE</label>
-      <input id="img-upload" type="file" accept="image/*" onchange="processImage()">
+      <div class="control-group">
+        <label>IMAGE</label>
+        <input type="file" id="img-upload" accept="image/*" onchange="processImage()">
+      </div>
 
-      <label>STYLE (PREVIEW)</label>
-      <select id="host-style" onchange="setSkin(this.value)">
-        <option value="vibrant">Neon Grape</option>
-        <option value="darkacad">Dark Academia</option>
-        <option value="artdeco">Art Deco</option>
-        <option value="storm">Storm Slate</option>
-        <option value="sunset">Miami Sunset</option>
-        <option value="forest">Cryptid Forest</option>
-        <option value="carnival">Killer Carnival</option>
-        <option value="ice">Blue Ice</option>
-        <option value="lava">Lava Lamp</option>
-        <option value="mono">Mono Punch</option>
-      </select>
+      <div class="control-group">
+        <label>STYLE (PREVIEW)</label>
+        <select id="host-style"></select>
+      </div>
 
       <button class="big-btn" id="btn-create" disabled onclick="createGame()">CREATE ROOM</button>
-      <button class="big-btn secondary" onclick="goTo('screen-lobby')">BACK</button>
+      <button class="big-btn secondary" onclick="goTo('screen-lobby')" style="margin-top:15px; font-size:1rem;">BACK</button>
     </div>
   </div>
 
   <!-- JOIN CODE -->
   <div id="screen-join-code" class="screen">
     <div class="card-panel">
-      <h2 style="margin:0 0 10px;">ENTER CODE</h2>
-      <input id="join-code" class="code-input" maxlength="4" placeholder="ABCD">
+      <h2>ENTER CODE</h2>
+      <input type="text" id="join-code" class="code-input" maxlength="4" placeholder="ABCD">
       <button class="big-btn" id="btn-search" onclick="searchRoom()">NEXT</button>
-
-      <label>STYLE (PREVIEW)</label>
-      <select id="join-style" onchange="setSkin(this.value)">
-        <option value="vibrant">Neon Grape</option>
-        <option value="darkacad">Dark Academia</option>
-        <option value="artdeco">Art Deco</option>
-        <option value="storm">Storm Slate</option>
-        <option value="sunset">Miami Sunset</option>
-        <option value="forest">Cryptid Forest</option>
-        <option value="carnival">Killer Carnival</option>
-        <option value="ice">Blue Ice</option>
-        <option value="lava">Lava Lamp</option>
-        <option value="mono">Mono Punch</option>
-      </select>
-
-      <button class="big-btn secondary" onclick="goTo('screen-lobby')">BACK</button>
+      <button class="big-btn secondary" onclick="goTo('screen-lobby')" style="margin-top:15px; font-size:1rem;">BACK</button>
     </div>
   </div>
 
-  <!-- JOIN NAME -->
+  <!-- JOIN SETUP -->
   <div id="screen-join-setup" class="screen">
     <div class="card-panel">
-      <h2 id="join-room-disp" style="margin:0 0 6px;">ROOM FOUND</h2>
-      <div id="join-host-disp" style="color:var(--accent); font-weight:900; margin-bottom:12px;">Connecting...</div>
+      <h2 id="join-room-disp">ROOM FOUND</h2>
+      <div id="join-host-disp" style="color:var(--accent); margin-bottom:15px; font-weight:900;">Connecting...</div>
 
-      <label>YOUR NAME</label>
-      <input id="join-name" type="text" placeholder="Name">
+      <div class="control-group">
+        <label>YOUR NAME</label>
+        <input type="text" id="join-name" placeholder="YOUR NAME">
+      </div>
 
-      <label>STYLE (PREVIEW)</label>
-      <select id="join-style-2" onchange="setSkin(this.value)">
-        <option value="vibrant">Neon Grape</option>
-        <option value="darkacad">Dark Academia</option>
-        <option value="artdeco">Art Deco</option>
-        <option value="storm">Storm Slate</option>
-        <option value="sunset">Miami Sunset</option>
-        <option value="forest">Cryptid Forest</option>
-        <option value="carnival">Killer Carnival</option>
-        <option value="ice">Blue Ice</option>
-        <option value="lava">Lava Lamp</option>
-        <option value="mono">Mono Punch</option>
-      </select>
+      <div class="control-group">
+        <label>STYLE (PREVIEW)</label>
+        <select id="join-style"></select>
+      </div>
 
       <button class="big-btn" id="btn-enter" disabled onclick="enterGame()">ENTER GAME</button>
-      <button class="big-btn secondary" onclick="goTo('screen-join-code')">BACK</button>
+      <button class="big-btn secondary" onclick="goTo('screen-lobby')" style="margin-top:15px; font-size:1rem;">BACK</button>
     </div>
   </div>
 
   <!-- GAME -->
   <div id="screen-game" class="screen">
     <div id="game-layout">
-      <!-- LEFT -->
-      <div class="sidebar">
+      <!-- LEFT: PLAYERS -->
+      <div class="sidebar" id="sb-players">
         <div class="sb-head">PLAYERS</div>
         <div id="list-players"></div>
       </div>
@@ -557,6 +672,7 @@
       <!-- CENTER -->
       <div id="center-stage">
         <div class="game-stack">
+
           <!-- HEADER -->
           <div id="header-row">
             <div class="info-cell">
@@ -564,32 +680,34 @@
               <div class="info-val" id="inf-host">?</div>
             </div>
             <div class="info-cell">
-              <div class="info-lbl">CATEGORY</div>
-              <div class="info-val" id="inf-cat">?</div>
-            </div>
-            <div class="info-cell">
-              <div class="info-lbl">CODE</div>
+              <div class="info-lbl">ROOM</div>
               <div class="info-val" id="inf-code" onclick="copyCode()">----</div>
             </div>
+
             <div class="info-cell">
               <div class="info-lbl">STYLE</div>
-              <select id="style-in-game" onchange="setSkin(this.value)"
-                style="padding:0; margin:0; height:22px; font-size:.86rem; font-weight:900; background:transparent; color:#fff; border:none; outline:none;">
-                <option value="vibrant">Neon Grape</option>
-                <option value="darkacad">Dark Academia</option>
-                <option value="artdeco">Art Deco</option>
-                <option value="storm">Storm Slate</option>
-                <option value="sunset">Miami Sunset</option>
-                <option value="forest">Cryptid Forest</option>
-                <option value="carnival">Killer Carnival</option>
-                <option value="ice">Blue Ice</option>
-                <option value="lava">Lava Lamp</option>
-                <option value="mono">Mono Punch</option>
-              </select>
+              <select id="style-in-game" style="padding:0; margin:0; height:20px; font-size:0.82rem; background:transparent; color:white; border:none; outline:none;"></select>
             </div>
+            <div class="info-cell">
+              <div class="info-lbl">ROLE</div>
+              <div class="info-val" id="inf-role">PLAYER</div>
+            </div>
+
             <div class="info-cell" id="info-status">
               <div class="info-lbl">STATUS</div>
               <div class="info-val" id="inf-status">WAITING</div>
+            </div>
+          </div>
+
+          <!-- CATEGORY STRIP -->
+          <div id="cat-strip">
+            <div id="cat-left">
+              <div id="cat-lbl">CATEGORY</div>
+              <div id="cat-val">?</div>
+            </div>
+            <div id="me-badge" title="You">
+              <div id="me-dot"></div>
+              <div id="me-name">?</div>
             </div>
           </div>
 
@@ -598,15 +716,16 @@
             <div id="mini-grid-container">
               <div id="mini-grid"></div>
             </div>
+
             <div id="call-box">
               <div class="call-lbl">CURRENT CALL</div>
-              <div class="call-val" id="call-val">--</div>
+              <div class="call-val" id="current-call-text">--</div>
             </div>
           </div>
 
           <!-- CARD -->
           <div id="card-wrapper">
-            <img id="target-img" src="" alt="">
+            <img id="target-img" src="">
             <div id="tile-grid"></div>
           </div>
 
@@ -622,53 +741,66 @@
             </div>
 
             <div id="guess-interface">
-              <input id="guess-field" type="text" placeholder="ANSWER...">
-              <button class="ctrl-btn btn-guess" id="guess-send" onclick="sendGuess()">SEND</button>
-              <button class="ctrl-btn btn-pass" id="guess-cancel" onclick="cancelGuess()">X</button>
+              <input type="text" id="guess-field" placeholder="ANSWER..." autocomplete="off">
+              <button class="ctrl-btn btn-guess" onclick="sendGuess()">SEND</button>
+              <button class="ctrl-btn btn-pass" onclick="cancelGuess()">X</button>
             </div>
 
-            <div id="waiting-msg">Waiting for your turn…</div>
+            <div id="waiting-msg">Waiting…</div>
           </div>
+
         </div>
       </div>
 
-      <!-- RIGHT -->
-      <div class="sidebar">
+      <!-- RIGHT: GUESSES -->
+      <div class="sidebar" id="sb-guesses">
         <div class="sb-head">WRONG GUESSES</div>
         <div id="list-guesses"></div>
       </div>
     </div>
 
-    <!-- Footer -->
+    <!-- FOOTER CHAT PLACEHOLDER -->
     <div id="chat-bar">
-      <input id="chat-input" type="text" placeholder="Chat (later)…">
+      <input type="text" id="chat-input" placeholder="Chat...">
       <button id="chat-send" onclick="alert('Chat coming later')">SEND</button>
+    </div>
+    <button id="chat-btn-float" onclick="alert('Chat drawer...')">💬</button>
+  </div>
+
+  <!-- TOAST -->
+  <div id="toast"></div>
+
+  <!-- WIN OVERLAY -->
+  <div id="win-overlay" onclick="dismissWinOverlay()">
+    <div id="win-backdrop"></div>
+    <div id="win-card">
+      <div class="fw" id="fw"></div>
+      <div id="win-title">WIN</div>
+      <div id="win-sub">They guessed: <span id="win-ans"></span></div>
+      <img id="win-img" src="" alt="Revealed image">
+      <div id="win-hint">Click anywhere to continue</div>
     </div>
   </div>
 
-  <div id="toast"></div>
-
 <script>
-  /* ==============================
-     SKINS (themed names restored)
-     ============================== */
+  /* -----------------------------------------------------------------------
+     SKINS (cool names restored)
+  ----------------------------------------------------------------------- */
   const SKINS = {
-    vibrant:  { bg:'#4c1d95', acc:'#2dd4bf', text:'#ffffff', tile:'#1e293b' }, // Neon Grape
-    darkacad: { bg:'#111827', acc:'#eab308', text:'#f8fafc', tile:'#374151' }, // Dark Academia
-    artdeco:  { bg:'#0b1220', acc:'#fbbf24', text:'#fef3c7', tile:'#1f2937' }, // Art Deco
-    storm:    { bg:'#0f172a', acc:'#38bdf8', text:'#e2e8f0', tile:'#1f2937' }, // Storm Slate
-    sunset:   { bg:'#7c2d12', acc:'#fb7185', text:'#fff7ed', tile:'#451a03' }, // Miami Sunset
-    forest:   { bg:'#064e3b', acc:'#a7f3d0', text:'#ecfdf5', tile:'#052e16' }, // Cryptid Forest
-    carnival: { bg:'#3b0764', acc:'#f472b6', text:'#fae8ff', tile:'#1f0933' }, // Killer Carnival
-    ice:      { bg:'#0c4a6e', acc:'#a5f3fc', text:'#ecfeff', tile:'#083344' }, // Blue Ice
-    lava:     { bg:'#7f1d1d', acc:'#fdba74', text:'#fff7ed', tile:'#3f0b0b' }, // Lava Lamp
-    mono:     { bg:'#111827', acc:'#ffffff', text:'#ffffff', tile:'#374151' }  // Mono Punch
+    neon_grape:      { label:'Neon Grape',      bg:'#4c1d95', acc:'#2dd4bf', text:'#ffffff', tile:'#1e293b' },
+    dark_academia:   { label:'Dark Academia',   bg:'#1c1917', acc:'#fbbf24', text:'#fef3c7', tile:'#292524' },
+    art_deco:        { label:'Art Deco',        bg:'#111827', acc:'#facc15', text:'#f8fafc', tile:'#1f2937' },
+    midnight_gold:   { label:'Midnight Gold',   bg:'#18181b', acc:'#facc15', text:'#f4f4f5', tile:'#27272a' },
+    storm_slate:     { label:'Storm Slate',     bg:'#0f172a', acc:'#38bdf8', text:'#e2e8f0', tile:'#1f2937' },
+    miami_sunset:    { label:'Miami Sunset',    bg:'#7c2d12', acc:'#fb7185', text:'#fff7ed', tile:'#451a03' },
+    cryptid_forest:  { label:'Cryptid Forest',  bg:'#064e3b', acc:'#a7f3d0', text:'#ecfdf5', tile:'#052e16' },
+    killer_carnival: { label:'Killer Carnival', bg:'#3b0764', acc:'#f472b6', text:'#fae8ff', tile:'#1f0933' },
+    blue_ice:        { label:'Blue Ice',        bg:'#0c4a6e', acc:'#a5f3fc', text:'#ecfeff', tile:'#083344' },
+    lava_lamp:       { label:'Lava Lamp',       bg:'#7f1d1d', acc:'#fdba74', text:'#fff7ed', tile:'#3f0b0b' }
   };
 
-  let currentSkinKey = 'darkacad';
-
-  function applySkin(k){
-    const s = SKINS[k] || SKINS.darkacad;
+  function applySkin(key){
+    const s = SKINS[key] || SKINS.neon_grape;
     const r = document.documentElement.style;
     r.setProperty('--bg-color', s.bg);
     r.setProperty('--accent', s.acc);
@@ -676,78 +808,78 @@
     r.setProperty('--tile-off', s.tile);
   }
 
-  function syncSkinSelects(k){
-    const ids = ['host-style','join-style','join-style-2','style-in-game'];
-    ids.forEach(id=>{
-      const el = document.getElementById(id);
-      if (el) el.value = k;
+  function fillSkinSelect(selectEl){
+    selectEl.innerHTML = '';
+    Object.keys(SKINS).forEach(k => {
+      const opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = SKINS[k].label;
+      selectEl.appendChild(opt);
     });
   }
 
-  function setSkin(k){
-    currentSkinKey = k;
-    applySkin(k);
-    syncSkinSelects(k);
-  }
-
-  // init skin
-  setSkin(currentSkinKey);
-
-  /* ==============================
-     GLOBAL STATE / MQTT
-     ============================== */
-  const BROKER = 'wss://broker.emqx.io:8084/mqtt';
-  const TOPIC_PRE = 'reveal_v4_7'; // new prefix to avoid collisions with your old broken rooms
-
+  /* -----------------------------------------------------------------------
+     GLOBAL STATE
+  ----------------------------------------------------------------------- */
   let myName = '';
+  let mySkin = 'neon_grape';
   let roomCode = '';
   let isHost = false;
   let client = null;
   let gameImg = null;
 
+  let currentPane = 'wait';          // 'host' | 'player' | 'guess' | 'wait'
+  let winOverlayDismissed = false;
+
   let gameState = {
-    host: '',
-    cat: '',
-    ans: '',
-    players: [],         // [{name}]
-    guesses: [],         // [{from, txt}]
-    revealed: [],        // [1..25]
-    status: 'PLAY',      // PLAY | WIN
-    winner: '',
-    turn: ''             // name whose turn it is (players only; host is referee)
+    host: "",
+    hostSkin: "neon_grape",
+    cat: "",
+    ans: "",
+    players: [],      // [{name, skin}]
+    guesses: [],      // [{from, txt, pct}]
+    revealed: [],     // [numbers]
+    status: "WAITING",// "WAITING" | "WIN"
+    winner: "",
+    turnIndex: 0
   };
 
-  /* ==============================
+  const BROKER    = 'wss://broker.emqx.io:8084/mqtt';
+  const TOPIC_PRE = 'reveal_v4_2';
+
+  /* -----------------------------------------------------------------------
      NAV
-     ============================== */
+  ----------------------------------------------------------------------- */
   function goTo(id){
-    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     const el = document.getElementById(id);
     if (el) el.classList.add('active');
   }
   function showHostSetup(){ goTo('screen-host-setup'); }
-  function showJoinCode(){ goTo('screen-join-code'); }
+  function showJoinSetup(){ goTo('screen-join-code'); }
 
-  /* ==============================
-     IMAGE
-     ============================== */
+  /* -----------------------------------------------------------------------
+     IMAGE HANDLING
+  ----------------------------------------------------------------------- */
   function processImage(){
     const file = document.getElementById('img-upload').files[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (e)=>{
+    reader.onload = (e) => {
       const img = new Image();
       img.src = e.target.result;
-      img.onload = ()=>{
+      img.onload = () => {
         const c = document.createElement('canvas');
         const ctx = c.getContext('2d');
+
         const s = Math.min(img.width, img.height);
         c.width = 600; c.height = 600;
         ctx.drawImage(img,
           (img.width - s)/2, (img.height - s)/2, s, s,
           0, 0, 600, 600
         );
+
         gameImg = c.toDataURL('image/jpeg', 0.65);
         document.getElementById('btn-create').disabled = false;
       };
@@ -755,128 +887,64 @@
     reader.readAsDataURL(file);
   }
 
-  /* ==============================
+  /* -----------------------------------------------------------------------
      MQTT CONNECT
-     ============================== */
+  ----------------------------------------------------------------------- */
   function connectMQTT(){
     if (client) return;
+
     client = mqtt.connect(BROKER);
-
-    client.on('connect', ()=>{
+    client.on('connect', () => {
       client.subscribe(`${TOPIC_PRE}/${roomCode}`);
+
+      // ask for state if joining
       if (!isHost){
-        client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type:'REQ_STATE' }));
+        client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'REQ_STATE'}));
       }
     });
 
-    client.on('message', (topic, payload)=>{
-      let msg;
-      try { msg = JSON.parse(payload.toString()); }
-      catch(e){ return; }
-
-      if (msg.type === 'STATE'){
-        gameState = msg.state || gameState;
-        if (msg.img) gameImg = msg.img;
-        if (gameImg) document.getElementById('target-img').src = gameImg;
-
-        // if we were searching, transition to name screen
-        const joinCodeScreen = document.getElementById('screen-join-code');
-        if (joinCodeScreen && joinCodeScreen.classList.contains('active')){
-          document.getElementById('join-room-disp').innerText = `ROOM: ${roomCode}`;
-          document.getElementById('join-host-disp').innerText = `HOST: ${gameState.host || '...'}`;
-          document.getElementById('btn-enter').disabled = false;
-          document.getElementById('btn-search').innerText = 'NEXT';
-          goTo('screen-join-setup');
-        }
-
-        updateUI();
-        return;
-      }
-
-      if (msg.type === 'REQ_STATE' && isHost){
-        sendState();
-        return;
-      }
-
-      if (msg.type === 'JOIN' && isHost){
-        // Host is NEVER added to players
-        if (!msg.name) return;
-        if (msg.name === gameState.host) return;
-
-        if (!gameState.players.find(p=>p.name === msg.name)){
-          gameState.players.push({ name: msg.name });
-          if (!gameState.turn) gameState.turn = msg.name; // first player gets turn
-          sendState();
-        } else {
-          // rejoin: keep as-is, just refresh state
-          sendState();
-        }
-        return;
-      }
-
-      if (msg.type === 'PASS' && isHost){
-        if (gameState.status === 'WIN') return;
-        if (msg.from && msg.from === gameState.turn){
-          advanceTurn();
-          sendState();
-        }
-        return;
-      }
-
-      if (msg.type === 'GUESS' && isHost){
-        if (gameState.status === 'WIN') return;
-        if (!msg.from || !msg.txt) return;
-        // only accept guess if it's that player's turn
-        if (msg.from !== gameState.turn) return;
-
-        handleIncomingGuessAsHost(msg.from, msg.txt);
-        return;
-      }
-
-      if (msg.type === 'HINT'){
-        if (msg.to === myName){
-          showToast(`Close! ${msg.pct}% match`);
-        }
-        return;
-      }
-    });
+    client.on('message', handleMsg);
   }
 
-  /* ==============================
-     HOST: CREATE
-     ============================== */
+  /* -----------------------------------------------------------------------
+     HOST CREATE
+  ----------------------------------------------------------------------- */
   function createGame(){
     myName = (document.getElementById('host-name').value || '').trim() || 'Host';
-    isHost = true;
+    mySkin = document.getElementById('host-style').value || 'neon_grape';
 
-    roomCode = Math.random().toString(36).slice(2,6).toUpperCase();
+    isHost = true;
+    roomCode = Math.random().toString(36).substr(2,4).toUpperCase();
 
     gameState = {
       host: myName,
+      hostSkin: mySkin,
       cat: (document.getElementById('game-cat').value || '').trim(),
       ans: (document.getElementById('game-ans').value || '').trim(),
-      players: [],
+      players: [],        // IMPORTANT: host is NOT a player
       guesses: [],
       revealed: [],
-      status: 'PLAY',
-      winner: '',
-      turn: ''
+      status: "WAITING",
+      winner: "",
+      turnIndex: 0
     };
 
     connectMQTT();
-    startGameUI();
+    startGame();
     sendState();
 
-    // keep state fresh (helps late joiners)
-    setInterval(()=>{ if (client && client.connected && isHost) sendState(); }, 2000);
+    // keep broadcasting
+    setInterval(() => {
+      if (client && client.connected && isHost) sendState();
+    }, 1500);
   }
 
-  /* ==============================
-     JOIN: SEARCH + ENTER
-     ============================== */
+  /* -----------------------------------------------------------------------
+     JOIN FLOW
+  ----------------------------------------------------------------------- */
   function searchRoom(){
     const code = (document.getElementById('join-code').value || '').trim().toUpperCase();
-    if (code.length !== 4){ alert('Enter 4-letter code.'); return; }
+    if (code.length !== 4) { alert('Enter 4-letter code.'); return; }
 
     roomCode = code;
     isHost = false;
@@ -886,41 +954,71 @@
   }
 
   function enterGame(){
-    const nm = (document.getElementById('join-name').value || '').trim();
-    if (!nm) return;
+    myName = (document.getElementById('join-name').value || '').trim();
+    if (!myName) return;
 
-    myName = nm;
+    mySkin = document.getElementById('join-style').value || 'neon_grape';
 
     if (client && client.connected){
-      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type:'JOIN', name: myName }));
+      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'JOIN', name: myName, skin: mySkin}));
     }
 
-    startGameUI();
+    startGame();
   }
 
-  /* ==============================
-     UI INIT
-     ============================== */
-  function startGameUI(){
+  /* -----------------------------------------------------------------------
+     TURN HELPERS
+  ----------------------------------------------------------------------- */
+  function getActivePlayerName(){
+    if (!gameState.players || !gameState.players.length) return '';
+    const idx = Math.max(0, Math.min(gameState.turnIndex || 0, gameState.players.length - 1));
+    return gameState.players[idx].name || '';
+  }
+
+  function isMyTurn(){
+    return !isHost && (getActivePlayerName() === myName);
+  }
+
+  function advanceTurn(){
+    if (!gameState.players || gameState.players.length === 0) return;
+    gameState.turnIndex = (gameState.turnIndex + 1) % gameState.players.length;
+  }
+
+  /* -----------------------------------------------------------------------
+     GAME INIT (UI)
+  ----------------------------------------------------------------------- */
+  function startGame(){
     goTo('screen-game');
+
+    // Fill skin selects (once)
+    fillSkinSelect(document.getElementById('style-in-game'));
+
+    // Apply my skin and make dropdown reflect it
+    document.getElementById('style-in-game').value = mySkin;
+    applySkin(mySkin);
+
+    document.getElementById('style-in-game').onchange = (e) => {
+      mySkin = e.target.value;
+      applySkin(mySkin);
+      // we intentionally do NOT broadcast player skin changes yet (future feature)
+    };
+
     document.getElementById('inf-code').innerText = roomCode;
+    document.getElementById('me-name').innerText = myName || (isHost ? gameState.host : '?');
+    document.getElementById('inf-role').innerText = isHost ? 'HOST' : 'PLAYER';
 
-    // ensure skin dropdown shows what user picked
-    syncSkinSelects(currentSkinKey);
-    applySkin(currentSkinKey);
-
-    // build mini-grid
+    // Build mini grid 1–25
     const mg = document.getElementById('mini-grid');
     mg.innerHTML = '';
     for (let i=1;i<=25;i++){
       const d = document.createElement('div');
       d.className = 'trk-cell';
-      d.id = `trk-${i}`;
+      d.id = 'trk-' + i;
       d.innerText = i;
       mg.appendChild(d);
     }
 
-    // build player card tiles (each client has their own shuffled layout)
+    // Build tiles
     const grid = document.getElementById('tile-grid');
     grid.innerHTML = '';
 
@@ -930,44 +1028,240 @@
       [nums[i], nums[j]] = [nums[j], nums[i]];
     }
 
-    nums.forEach(n=>{
+    nums.forEach(n => {
       const t = document.createElement('div');
       t.className = 'tile';
-      t.dataset.n = String(n);
-      t.innerText = String(n);
-      t.onclick = ()=> onTileClick(n, t);
+      t.dataset.n = n;
+      t.innerText = n;
+
+      t.onclick = () => {
+        const num = parseInt(t.dataset.n, 10);
+        if ((gameState.revealed || []).includes(num)){
+          t.classList.add('revealed');
+        } else {
+          alert("That number hasn't been called yet.");
+        }
+      };
       grid.appendChild(t);
     });
 
-    // set image if we have it
+    // Set image if we already have it
     if (gameImg) document.getElementById('target-img').src = gameImg;
 
-    // show correct control pane immediately
-    setControlPaneForMe();
+    // Pane baseline
+    if (isHost) showControlPane('host');
+    else showControlPane('wait');
 
     updateUI();
   }
 
-  function onTileClick(num, tileEl){
-    // reveal only if called OR game is won
-    const ok = (gameState.status === 'WIN') || (gameState.revealed || []).includes(num);
-    if (!ok){
-      alert("That number hasn't been called yet.");
+  /* -----------------------------------------------------------------------
+     MESSAGE HANDLER
+  ----------------------------------------------------------------------- */
+  function handleMsg(topic, m){
+    const msg = JSON.parse(m.toString());
+
+    if (msg.type === 'STATE'){
+      gameState = msg.state || gameState;
+      if (msg.img) gameImg = msg.img;
+
+      // Apply host skin as default if you haven't set one yet (joining midstream)
+      if (!mySkin && !isHost) mySkin = 'neon_grape';
+
+      // Update join screen when state arrives
+      if (document.getElementById('screen-join-code').classList.contains('active')){
+        document.getElementById('join-room-disp').innerText = 'ROOM: ' + roomCode;
+        document.getElementById('join-host-disp').innerText = 'HOST: ' + (gameState.host || '...');
+        document.getElementById('btn-enter').disabled = false;
+        document.getElementById('btn-search').innerText = 'NEXT';
+        goTo('screen-join-setup');
+      }
+
+      if (gameImg) document.getElementById('target-img').src = gameImg;
+
+      updateUI();
       return;
     }
-    tileEl.classList.add('revealed');
+
+    if (msg.type === 'REQ_STATE' && isHost){
+      sendState();
+      return;
+    }
+
+    if (msg.type === 'JOIN' && isHost){
+      const name = (msg.name || '').trim();
+      const skin = msg.skin || 'neon_grape';
+      if (!name) return;
+
+      if (!gameState.players.find(p => p.name === name)){
+        gameState.players.push({name, skin});
+        // if this is the first player, they become active automatically (turnIndex 0)
+        if (gameState.players.length === 1) gameState.turnIndex = 0;
+        sendState();
+      }
+      return;
+    }
+
+    if (msg.type === 'PASS' && isHost){
+      const active = getActivePlayerName();
+      if (active && msg.from !== active) return; // enforce
+      advanceTurn();
+      sendState();
+      return;
+    }
+
+    if (msg.type === 'GUESS' && isHost){
+      handleIncomingGuessAsHost(msg);
+      return;
+    }
+
+    if (msg.type === 'HINT'){
+      if (msg.to === myName){
+        showToast(`Close! ${msg.pct}% match`);
+      }
+      return;
+    }
   }
 
-  /* ==============================
-     CONTROLS PANE LOGIC
-     ============================== */
-  function showPane(which){
-    const hostPane = document.getElementById('host-btns');
-    const playerPane = document.getElementById('player-btns');
-    const guessPane = document.getElementById('guess-interface');
-    const waitPane = document.getElementById('waiting-msg');
+  /* -----------------------------------------------------------------------
+     UI UPDATE
+  ----------------------------------------------------------------------- */
+  function updateUI(){
+    // header values
+    document.getElementById('inf-host').innerText = gameState.host || '?';
+    document.getElementById('cat-val').innerText = gameState.cat || '?';
+    document.getElementById('me-name').innerText = myName || (isHost ? gameState.host : '?');
 
-    [hostPane, playerPane, guessPane, waitPane].forEach(p=>p.classList.remove('show'));
+    // status line
+    const active = getActivePlayerName();
+    const st = document.getElementById('inf-status');
+    if (gameState.status === 'WIN'){
+      st.innerText = `WIN: ${gameState.winner || '???'}`;
+    } else {
+      if (!gameState.players.length){
+        st.innerText = isHost ? 'WAITING FOR PLAYERS' : 'WAITING FOR HOST';
+      } else {
+        st.innerText = `TURN: ${active || '???'}`;
+      }
+    }
+
+    // mini grid + current call
+    let last = 0;
+    (gameState.revealed || []).forEach(n => {
+      const el = document.getElementById('trk-' + n);
+      if (el) el.classList.add('active');
+      last = n;
+    });
+
+    const callBox = document.getElementById('call-box');
+    if (last === 23){
+      callBox.innerHTML = '<div class="call-lbl">ILLUMINATI</div><div class="pyramid"></div>';
+    } else {
+      callBox.innerHTML = `<div class="call-lbl">CURRENT CALL</div><div class="call-val">${last || '--'}</div>`;
+    }
+
+    // reveal tiles that are called (optional convenience)
+    // (we do not auto-reveal tiles; player clicks to reveal — current behavior)
+
+    // players list + highlight active turn
+    const pl = document.getElementById('list-players');
+    pl.innerHTML = '';
+
+    (gameState.players || []).forEach(p => {
+      const d = document.createElement('div');
+      d.className = 'sb-item' + ((p.name === active && gameState.status !== 'WIN') ? ' active-turn' : '');
+      d.innerText = p.name;
+      pl.appendChild(d);
+    });
+
+    // guesses list (host sees all, players see only their own) + include %
+    const lg = document.getElementById('list-guesses');
+    lg.innerHTML = '';
+
+    const guesses = (gameState.guesses || []);
+    const view = isHost ? guesses : guesses.filter(g => g.from === myName);
+
+    view.forEach(g => {
+      const d = document.createElement('div');
+      d.className = 'sb-item';
+      const pct = (typeof g.pct === 'number') ? `${g.pct}%` : '';
+      d.innerText = isHost
+        ? `${g.from}: "${g.txt}" — ${pct}`
+        : `"${g.txt}" — ${pct}`;
+      lg.appendChild(d);
+    });
+
+    // Disable host call if win
+    const callBtn = document.getElementById('btn-call');
+    if (callBtn) callBtn.disabled = (gameState.status === 'WIN');
+
+    // WIN overlay
+    if (gameState.status === 'WIN'){
+      showWinOverlay();
+    }
+
+    // Controls gating
+    if (isHost){
+      showControlPane('host');
+      return;
+    }
+
+    if (gameState.status === 'WIN'){
+      showControlPane('wait');
+      return;
+    }
+
+    // If you are NOT the active player => you get WAIT
+    if (!isMyTurn()){
+      showControlPane('wait');
+      return;
+    }
+
+    // You ARE the active player:
+    // - If you're currently typing (guess pane), do NOT stomp it.
+    if (currentPane === 'guess'){
+      showControlPane('guess');
+    } else {
+      showControlPane('player');
+    }
+  }
+
+  /* -----------------------------------------------------------------------
+     HOST CALL NUMBER
+  ----------------------------------------------------------------------- */
+  function hostCall(){
+    if (gameState.status === 'WIN') return;
+
+    // must have at least 1 player to play turns, but host can still call even if none
+    const avail = [];
+    for (let i=1;i<=25;i++){
+      if (!(gameState.revealed || []).includes(i)) avail.push(i);
+    }
+    if (!avail.length) return;
+
+    const pick = avail[Math.floor(Math.random() * avail.length)];
+    gameState.revealed.push(pick);
+
+    // host immediate feedback
+    updateUI();
+    sendState();
+  }
+
+  /* -----------------------------------------------------------------------
+     CONTROLS PANE SWITCHER
+  ----------------------------------------------------------------------- */
+  function showControlPane(which){
+    currentPane = which;
+
+    const hostPane   = document.getElementById('host-btns');
+    const playerPane = document.getElementById('player-btns');
+    const guessPane  = document.getElementById('guess-interface');
+    const waitPane   = document.getElementById('waiting-msg');
+
+    hostPane.classList.remove('show');
+    playerPane.classList.remove('show');
+    guessPane.classList.remove('show');
+    waitPane.classList.remove('show');
 
     if (which === 'host') hostPane.classList.add('show');
     if (which === 'player') playerPane.classList.add('show');
@@ -975,208 +1269,75 @@
     if (which === 'wait') waitPane.classList.add('show');
   }
 
-  function isMyTurn(){
-    return (!isHost) && (gameState.turn === myName) && (gameState.status !== 'WIN');
-  }
-
-  function setControlPaneForMe(){
-    if (isHost){
-      showPane('host');
-      return;
-    }
-    if (isMyTurn()){
-      showPane('player');
-    } else {
-      showPane('wait');
-    }
-  }
-
+  /* -----------------------------------------------------------------------
+     PLAYER CONTROLS
+  ----------------------------------------------------------------------- */
   function showGuess(){
     if (!isMyTurn()) return;
-    showPane('guess');
-    const f = document.getElementById('guess-field');
-    f.value = '';
-    f.focus();
+    showControlPane('guess');
+    document.getElementById('guess-field').focus();
   }
 
   function cancelGuess(){
-    setControlPaneForMe();
+    if (!isMyTurn()) return;
+    showControlPane('player');
   }
 
   function passTurn(){
     if (!isMyTurn()) return;
+
     if (client && client.connected){
-      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type:'PASS', from: myName }));
+      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'PASS', from: myName}));
     }
-    showPane('wait');
+
+    // Stay waiting until host advances + state arrives
+    showControlPane('wait');
   }
 
   function sendGuess(){
     if (!isMyTurn()) return;
-    const g = (document.getElementById('guess-field').value || '').trim();
+
+    const field = document.getElementById('guess-field');
+    const g = (field.value || '').trim();
     if (!g) return;
 
     if (client && client.connected){
-      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type:'GUESS', from: myName, txt: g }));
+      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'GUESS', from: myName, txt: g}));
     }
-    showPane('wait');
+
+    field.value = '';
+    showControlPane('wait'); // wait for host response/advance
   }
 
-  /* ==============================
-     HOST CALL + TURN ADVANCE
-     ============================== */
-  function hostCall(){
-    if (!isHost) return;
-    if (gameState.status === 'WIN') return;
-
-    const avail = [];
-    for (let i=1;i<=25;i++){
-      if (!(gameState.revealed || []).includes(i)) avail.push(i);
-    }
-    if (avail.length === 0) return;
-
-    const pick = avail[Math.floor(Math.random()*avail.length)];
-    gameState.revealed.push(pick);
-
-    // advance turn AFTER calling a number (so everyone takes turns reacting)
-    advanceTurn();
-
-    sendState();
-    updateUI();
-  }
-
-  function advanceTurn(){
-    const ps = gameState.players || [];
-    if (ps.length === 0){
-      gameState.turn = '';
-      return;
-    }
-    if (!gameState.turn){
-      gameState.turn = ps[0].name;
-      return;
-    }
-    const idx = ps.findIndex(p=>p.name === gameState.turn);
-    const next = (idx === -1) ? 0 : (idx + 1) % ps.length;
-    gameState.turn = ps[next].name;
-  }
-
-  /* ==============================
+  /* -----------------------------------------------------------------------
      STATE BROADCAST
-     ============================== */
+  ----------------------------------------------------------------------- */
   function sendState(){
     if (client && client.connected && isHost){
-      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({
-        type:'STATE',
-        state: gameState,
-        img: gameImg
-      }));
+      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'STATE', state: gameState, img: gameImg}));
     }
   }
 
-  /* ==============================
-     UI UPDATE
-     ============================== */
-  function updateUI(){
-    const hostEl = document.getElementById('inf-host');
-    const catEl  = document.getElementById('inf-cat');
-    const stEl   = document.getElementById('inf-status');
-
-    if (hostEl) hostEl.innerText = gameState.host || '?';
-    if (catEl)  catEl.innerText  = gameState.cat  || '?';
-
-    // Status
-    if (stEl){
-      if (gameState.status === 'WIN'){
-        stEl.innerText = `WIN: ${gameState.winner || '???'}`;
-      } else if ((gameState.players || []).length === 0){
-        stEl.innerText = 'WAITING FOR PLAYERS';
-      } else {
-        stEl.innerText = `TURN: ${gameState.turn || '—'}`;
-      }
-    }
-
-    // Mini-grid lighting
-    let last = 0;
-    const rev = gameState.revealed || [];
-    for (let i=1;i<=25;i++){
-      const cell = document.getElementById(`trk-${i}`);
-      if (cell) cell.classList.toggle('active', rev.includes(i));
-    }
-    if (rev.length) last = rev[rev.length-1];
-
-    // Call box
-    const callBox = document.getElementById('call-box');
-    if (callBox){
-      if (last === 23){
-        callBox.innerHTML = `<div class="call-lbl">ILLUMINATI</div><div class="pyramid"></div>`;
-      } else {
-        callBox.innerHTML = `<div class="call-lbl">CURRENT CALL</div><div class="call-val" id="call-val">${last || '--'}</div>`;
-      }
-    }
-
-    // Players list + highlight
-    const pl = document.getElementById('list-players');
-    if (pl){
-      pl.innerHTML = '';
-      (gameState.players || []).forEach(p=>{
-        const d = document.createElement('div');
-        d.className = 'sb-item' + (p.name === gameState.turn ? ' active-turn' : '');
-        d.innerText = p.name;
-        pl.appendChild(d);
-      });
-    }
-
-    // Guesses list
-    const lg = document.getElementById('list-guesses');
-    if (lg){
-      lg.innerHTML = '';
-      (gameState.guesses || []).forEach(g=>{
-        const d = document.createElement('div');
-        d.className = 'sb-item';
-        d.innerText = `${g.from}: "${g.txt}"`;
-        lg.appendChild(d);
-      });
-    }
-
-    // Tiles: auto-reveal if number called or WIN
-    const tiles = document.querySelectorAll('.tile');
-    tiles.forEach(t=>{
-      const n = parseInt(t.dataset.n, 10);
-      const shouldReveal = (gameState.status === 'WIN') || (gameState.revealed || []).includes(n);
-      if (shouldReveal && t.classList.contains('revealed') === false){
-        // do not force reveal until clicked? your old behavior was click-to-reveal.
-        // Keep it click-to-reveal. We ONLY disable wrong-click enforcement above.
-      }
-      // If WIN, reveal everything immediately (optional; matches your old host-win behavior)
-      if (gameState.status === 'WIN'){
-        t.classList.add('revealed');
-      }
-    });
-
-    // Controls pane based on current state
-    const callBtn = document.getElementById('btn-call');
-    if (callBtn) callBtn.disabled = (gameState.status === 'WIN');
-
-    setControlPaneForMe();
+  /* -----------------------------------------------------------------------
+     FUZZY MATCHING (HOST)
+  ----------------------------------------------------------------------- */
+  function sanitizeText(s){
+    return (s || '').replace(/\s+/g,'').toUpperCase();
   }
-
-  /* ==============================
-     GUESS EVAL (HOST)
-     ============================== */
-  function sanitizeText(s){ return (s || '').replace(/\s+/g,'').toUpperCase(); }
 
   function levenshtein(a,b){
     const m=a.length, n=b.length;
-    const dp = Array.from({length:m+1}, ()=>new Array(n+1).fill(0));
+    const dp = Array.from({length:m+1}, () => new Array(n+1).fill(0));
     for (let i=0;i<=m;i++) dp[i][0]=i;
     for (let j=0;j<=n;j++) dp[0][j]=j;
+
     for (let i=1;i<=m;i++){
       for (let j=1;j<=n;j++){
         const cost = a[i-1]===b[j-1] ? 0 : 1;
         dp[i][j] = Math.min(
-          dp[i-1][j] + 1,
-          dp[i][j-1] + 1,
-          dp[i-1][j-1] + cost
+          dp[i-1][j]+1,
+          dp[i][j-1]+1,
+          dp[i-1][j-1]+cost
         );
       }
     }
@@ -1184,51 +1345,143 @@
   }
 
   function similarityPercent(guess, answer){
-    const g=sanitizeText(guess), a=sanitizeText(answer);
+    const g = sanitizeText(guess);
+    const a = sanitizeText(answer);
     if (!g || !a) return 0;
     const dist = levenshtein(g,a);
     const maxLen = Math.max(g.length, a.length);
-    return Math.round((1 - dist/maxLen) * 100);
+    return Math.round((1 - dist / maxLen) * 100);
   }
 
-  function handleIncomingGuessAsHost(from, txt){
-    const pct = similarityPercent(txt, gameState.ans);
-    gameState.guesses.push({ from, txt });
+  function handleIncomingGuessAsHost(msg){
+    const active = getActivePlayerName();
+    if (active && msg.from !== active) return; // enforce only active player can guess
 
+    const pct = similarityPercent(msg.txt, gameState.ans);
+
+    // WIN: do not add correct guess to sidebar
     if (pct >= 90){
       gameState.status = 'WIN';
-      gameState.winner = from;
+      gameState.winner = msg.from;
       gameState.revealed = Array.from({length:25}, (_,i)=>i+1);
       sendState();
       updateUI();
       return;
     }
 
+    // WRONG: store with pct for per-player display
+    gameState.guesses.push({from: msg.from, txt: msg.txt, pct});
+
+    // close hint (private toast)
     if (pct >= 50 && client && client.connected){
-      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type:'HINT', to: from, pct }));
+      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'HINT', to: msg.from, pct}));
     }
 
-    // advance turn after a guess (win handled above)
+    // auto-advance after any wrong guess
     advanceTurn();
     sendState();
-    updateUI();
   }
 
-  /* ==============================
+  /* -----------------------------------------------------------------------
+     WIN OVERLAY
+  ----------------------------------------------------------------------- */
+  function showWinOverlay(){
+    if (winOverlayDismissed) return;
+
+    const overlay = document.getElementById('win-overlay');
+    const title = document.getElementById('win-title');
+    const ans = document.getElementById('win-ans');
+    const img = document.getElementById('win-img');
+
+    title.textContent = `${gameState.winner || 'Someone'} wins!`;
+    ans.textContent = gameState.ans || '???';
+    img.src = gameImg || '';
+
+    buildFireworks();
+
+    overlay.classList.add('show');
+  }
+
+  function dismissWinOverlay(){
+    const overlay = document.getElementById('win-overlay');
+    overlay.classList.remove('show');
+    winOverlayDismissed = true;
+  }
+
+  function buildFireworks(){
+    const fw = document.getElementById('fw');
+    fw.innerHTML = '';
+
+    // 3 bursts, each ~18 sparks
+    const bursts = [
+      {x: '20%', y:'25%'},
+      {x: '75%', y:'30%'},
+      {x: '55%', y:'70%'}
+    ];
+
+    bursts.forEach((b, bi) => {
+      for (let i=0;i<18;i++){
+        const sp = document.createElement('div');
+        sp.className = 'spark';
+
+        const angle = (Math.PI*2) * (i/18);
+        const radius = 90 + Math.floor(Math.random()*60);
+
+        const dx = Math.cos(angle) * radius;
+        const dy = Math.sin(angle) * radius;
+
+        sp.style.left = b.x;
+        sp.style.top = b.y;
+        sp.style.setProperty('--dx', dx + 'px');
+        sp.style.setProperty('--dy', dy + 'px');
+
+        // stagger
+        sp.style.animationDelay = (bi*0.15 + Math.random()*0.25) + 's';
+
+        // alternate spark color using accent vs white-ish
+        if (i % 3 === 0) sp.style.background = 'white';
+        if (i % 5 === 0) sp.style.background = 'rgba(251,191,36,1)'; // gold-ish
+
+        fw.appendChild(sp);
+      }
+    });
+  }
+
+  /* -----------------------------------------------------------------------
      SMALL UTILS
-     ============================== */
+  ----------------------------------------------------------------------- */
   function copyCode(){
     if (!roomCode) return;
     navigator.clipboard.writeText(roomCode);
-    showToast(`Copied: ${roomCode}`);
+    alert('Room code copied: ' + roomCode);
   }
 
-  function showToast(text, ms=1800){
-    const t=document.getElementById('toast');
-    t.textContent=text;
+  function showToast(text, ms=2000){
+    const t = document.getElementById('toast');
+    t.textContent = text;
     t.classList.add('show');
-    setTimeout(()=>t.classList.remove('show'), ms);
+    setTimeout(() => t.classList.remove('show'), ms);
   }
+
+  /* -----------------------------------------------------------------------
+     BOOTSTRAP (populate selects + bind preview)
+  ----------------------------------------------------------------------- */
+  (function init(){
+    const hostSel = document.getElementById('host-style');
+    const joinSel = document.getElementById('join-style');
+
+    fillSkinSelect(hostSel);
+    fillSkinSelect(joinSel);
+
+    hostSel.value = 'dark_academia';
+    joinSel.value = 'dark_academia';
+
+    hostSel.onchange = () => applySkin(hostSel.value);
+    joinSel.onchange = () => applySkin(joinSel.value);
+
+    applySkin('dark_academia');
+  })();
 </script>
+
 </body>
 </html>
