@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <!--
-  REVEAL! v4.8 – Host adjudication + turn gating (no fuzzy matching)
+  REVEAL! v4.8.1 – Host adjudication + turn gating (no fuzzy matching)
 
   CORE LOOP (v4.8)
   - Host CALLS a number -> starts a full player turn-cycle.
@@ -1154,8 +1154,11 @@
     const st = document.getElementById("inf-status");
     if (gameState.status === "WIN" || gameState.phase === "WIN"){
       st.textContent = `${gameState.winner || "???"} wins!`;
-    } else if (gameState.phase === "ADJUDICATE" && gameState.pendingGuess){
-      st.textContent = `${gameState.pendingGuess.from} is being judged`;
+} else if (gameState.phase === "ADJUDICATE" && gameState.pendingGuess){
+  const g = (gameState.pendingGuess.txt || "").trim();
+  st.textContent = `"${g || "?"}" is being judged`;
+}
+
     } else if (gameState.phase === "TURNS"){
       const ap = getActivePlayerName();
       st.textContent = ap ? `Turn: ${ap}` : "Turn: ?";
@@ -1213,12 +1216,6 @@
         lg.appendChild(d);
       });
     }
-
-    // lock tiles that have been called
-    document.querySelectorAll(".tile").forEach(t=>{
-      const n = parseInt(t.dataset.n,10);
-      if ((gameState.revealed || []).includes(n)) t.classList.add("revealed");
-    });
 
     // controls gating
     const myTurn = (!isHost)
