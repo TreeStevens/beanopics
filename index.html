@@ -13,7 +13,7 @@
 
   NOTES
   - Everyone sees ALL wrong guesses (no %).
-  - Status shows: “NAME is being judged” during adjudication.
+  - Status shows: “"GUESS" is being judged” during adjudication.
   - Host can SKIP a player.
   - No 23 gag.
   - Jumbotron panels are square (no rectangles).
@@ -21,7 +21,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
-  <title>REVEAL! v4.8</title>
+  <title>REVEAL! v4.8.1</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
 
@@ -225,7 +225,7 @@
     }
     #mini-grid-container,
     #call-box{
-      aspect-ratio:1/1;          /* <-- stops rectangles */
+      aspect-ratio:1/1;
       width:100%;
       border-radius:12px;
       overflow:hidden;
@@ -432,7 +432,6 @@
       object-fit:cover;
       display:block;
     }
-    /* simple fireworks */
     .fw{
       position:absolute;
       width:8px; height:8px;
@@ -464,7 +463,7 @@
   <!-- LOBBY -->
   <div id="screen-lobby" class="screen active">
     <div class="card-panel">
-      <h1>REVEAL! v4.8</h1>
+      <h1>REVEAL! v4.8.1</h1>
       <div style="display:flex; flex-direction:column; gap:10px; margin-top:16px;">
         <button class="big-btn" onclick="showHostSetup()">HOST GAME</button>
         <div style="opacity:.55; margin:4px 0;">OR</div>
@@ -500,9 +499,7 @@
 
       <div class="control-group">
         <label>STYLE (PREVIEW)</label>
-        <select id="host-style" onchange="setMySkin(this.value)">
-          <!-- populated by JS -->
-        </select>
+        <select id="host-style" onchange="setMySkin(this.value)"></select>
       </div>
 
       <button class="big-btn" id="btn-create" disabled onclick="createGame()">CREATE ROOM</button>
@@ -533,9 +530,7 @@
 
       <div class="control-group">
         <label>STYLE (PREVIEW)</label>
-        <select id="join-style" onchange="setMySkin(this.value)">
-          <!-- populated by JS -->
-        </select>
+        <select id="join-style" onchange="setMySkin(this.value)"></select>
       </div>
 
       <button class="big-btn" id="btn-enter" disabled onclick="enterGame()">ENTER GAME</button>
@@ -569,9 +564,7 @@
 
             <div class="info-cell">
               <div class="info-lbl">STYLE</div>
-              <select id="style-in-game" onchange="setMySkin(this.value)" style="padding:0;margin:0;height:22px;font-size:.85rem;background:transparent;color:#fff;border:none;outline:none;">
-                <!-- populated by JS -->
-              </select>
+              <select id="style-in-game" onchange="setMySkin(this.value)" style="padding:0;margin:0;height:22px;font-size:.85rem;background:transparent;color:#fff;border:none;outline:none;"></select>
             </div>
             <div class="info-cell">
               <div class="info-lbl">PHASE</div>
@@ -702,7 +695,6 @@
     localStorage.setItem("reveal_skin", mySkinKey);
     applySkin(mySkinKey);
 
-    // keep all selects synced to actual chosen skin
     const ids = ["host-style","join-style","style-in-game"];
     ids.forEach(id=>{
       const el = document.getElementById(id);
@@ -734,12 +726,12 @@
     host:"",
     cat:"",
     ans:"",
-    players:[],           // [{name}]
+    players:[],
     activeIdx:0,
     roundStartIdx:0,
-    phase:"CALL",         // CALL | TURNS | ADJUDICATE | WIN
-    pendingGuess:null,    // {from, txt}
-    guesses:[],           // WRONG ONLY: {from, txt}
+    phase:"CALL",
+    pendingGuess:null,
+    guesses:[],
     revealed:[],
     status:"WAITING",
     winner:"",
@@ -747,7 +739,7 @@
   };
 
   const BROKER = "wss://broker.emqx.io:8084/mqtt";
-  const TOPIC_PRE = "reveal_v4_8"; // new version topic
+  const TOPIC_PRE = "reveal_v4_8_1";
 
   /* NAV */
   function goTo(id){
@@ -799,7 +791,7 @@
     gameState.cat  = (document.getElementById("game-cat").value || "").trim();
     gameState.ans  = (document.getElementById("game-ans").value || "").trim();
 
-    gameState.players = [];         // IMPORTANT: host is NOT a player
+    gameState.players = [];
     gameState.activeIdx = 0;
     gameState.roundStartIdx = 0;
     gameState.phase = "CALL";
@@ -817,7 +809,6 @@
     startGame();
     sendState();
 
-    // keep state alive
     setInterval(()=>{
       if (client && client.connected && isHost) sendState();
     }, 2000);
@@ -870,11 +861,9 @@
   function startGame(){
     goTo("screen-game");
 
-    // set headers
     document.getElementById("inf-code").textContent = roomCode;
     document.getElementById("me-pill").textContent = `ME: ${myName || "?"}`;
 
-    // build mini-grid
     const mg = document.getElementById("mini-grid");
     mg.innerHTML = "";
     for (let i=1;i<=25;i++){
@@ -885,7 +874,6 @@
       mg.appendChild(d);
     }
 
-    // build tiles (random per device – ok for this version)
     const grid = document.getElementById("tile-grid");
     grid.innerHTML = "";
     let nums = Array.from({length:25}, (_,i)=>i+1);
@@ -922,7 +910,6 @@
       gameState = msg.state || gameState;
       if (msg.img) gameImg = msg.img;
 
-      // join flow: move to name screen if we got a real host
       if (document.getElementById("screen-join-code").classList.contains("active")){
         document.getElementById("join-room-disp").textContent = "ROOM: " + roomCode;
         document.getElementById("join-host-disp").textContent = "HOST: " + (gameState.host || "...");
@@ -931,7 +918,6 @@
         goTo("screen-join-setup");
       }
 
-      // image update
       if (gameImg) document.getElementById("target-img").src = gameImg;
 
       updateUI();
@@ -947,20 +933,15 @@
       const n = (msg.name || "").trim();
       if (!n) return;
 
-      // prevent duplicates
       if (!(gameState.players || []).some(p=>p.name === n)){
         gameState.players.push({name:n});
-
-        // if first player joined, ensure activeIdx stays valid
         gameState.activeIdx = clampIdx(gameState.activeIdx || 0);
         gameState.roundStartIdx = clampIdx(gameState.roundStartIdx || 0);
-
         sendState();
       }
       return;
     }
 
-    // HOST: accept PASS only from active player in TURNS
     if (msg.type === "PASS" && isHost){
       if (gameState.phase !== "TURNS") return;
       if (!isActivePlayer(msg.from)) return;
@@ -974,7 +955,6 @@
       return;
     }
 
-    // HOST: accept GUESS only from active player in TURNS -> move to ADJUDICATE
     if (msg.type === "GUESS" && isHost){
       if (gameState.phase !== "TURNS") return;
       if (!isActivePlayer(msg.from)) return;
@@ -986,18 +966,13 @@
       return;
     }
 
-    // HOST: skip a player (from host UI)
     if (msg.type === "SKIP" && isHost){
       if (gameState.status === "WIN") return;
       const who = msg.who;
 
-      // if we're adjudicating, skipping is not allowed
       if (gameState.phase === "ADJUDICATE") return;
-
-      // only meaningful during TURNS
       if (gameState.phase !== "TURNS") return;
 
-      // if host skips the ACTIVE player, advance
       if (who === getActivePlayerName()){
         advanceTurn();
         endTurnCycleIfComplete();
@@ -1024,7 +999,6 @@
     const pick = avail[Math.floor(Math.random()*avail.length)];
     gameState.revealed.push(pick);
 
-    // start a full cycle
     gameState.phase = "TURNS";
     gameState.roundStartIdx = clampIdx(gameState.activeIdx || 0);
     gameState.pendingGuess = null;
@@ -1047,10 +1021,8 @@
       gameState.winner = pg.from;
       gameState.winGuess = pg.txt;
 
-      // reveal full image
       gameState.revealed = Array.from({length:25}, (_,i)=>i+1);
 
-      // clear pending guess (and DO NOT add to wrong guesses list)
       gameState.pendingGuess = null;
 
       sendState();
@@ -1059,11 +1031,9 @@
       return;
     }
 
-    // WRONG
     gameState.guesses.push({from: pg.from, txt: pg.txt});
     gameState.pendingGuess = null;
 
-    // advance turn after adjudication
     advanceTurn();
     endTurnCycleIfComplete();
     if (gameState.phase !== "CALL") gameState.phase = "TURNS";
@@ -1072,7 +1042,7 @@
     updateUI();
   }
 
-  /* HOST SKIP (button in list) */
+  /* HOST SKIP */
   function hostSkip(name){
     if (!isHost) return;
     if (gameState.phase !== "TURNS") return;
@@ -1108,7 +1078,6 @@
     if (!isActivePlayer(myName)) return;
     if (gameState.status === "WIN") return;
 
-    // PASS stays hot, and also effectively closes guess UI
     closeGuessUI();
 
     if (client && client.connected){
@@ -1126,7 +1095,6 @@
     const g = (gf.value || "").trim();
     if (!g) return;
 
-    // once sent, cannot undo
     closeGuessUI();
 
     if (client && client.connected){
@@ -1147,18 +1115,13 @@
     document.getElementById("inf-cat").textContent  = gameState.cat  || "?";
     document.getElementById("inf-phase").textContent = (gameState.phase || "?").toUpperCase();
 
-    // status rules:
-    // - ADJUDICATE => "NAME is being judged"
-    // - WIN => "NAME wins!"
-    // - otherwise => "It's NAME's turn" (when in turns) OR "Waiting for host"
     const st = document.getElementById("inf-status");
+
     if (gameState.status === "WIN" || gameState.phase === "WIN"){
       st.textContent = `${gameState.winner || "???"} wins!`;
-} else if (gameState.phase === "ADJUDICATE" && gameState.pendingGuess){
-  const g = (gameState.pendingGuess.txt || "").trim();
-  st.textContent = `"${g || "?"}" is being judged`;
-}
-
+    } else if (gameState.phase === "ADJUDICATE" && gameState.pendingGuess){
+      const g = (gameState.pendingGuess.txt || "").trim();
+      st.textContent = `"${g || "?"}" is being judged`;
     } else if (gameState.phase === "TURNS"){
       const ap = getActivePlayerName();
       st.textContent = ap ? `Turn: ${ap}` : "Turn: ?";
@@ -1166,17 +1129,14 @@
       st.textContent = "WAITING";
     }
 
-    // mini-grid + current call
     let last = 0;
     (gameState.revealed || []).forEach(n=>{
       const el = document.getElementById("trk-" + n);
       if (el) el.classList.add("active");
       last = n;
     });
-    const callText = document.getElementById("current-call-text");
-    callText.textContent = (last || "--");
+    document.getElementById("current-call-text").textContent = (last || "--");
 
-    // players list + active highlight + host skip buttons
     const pl = document.getElementById("list-players");
     if (pl){
       pl.innerHTML = "";
@@ -1186,7 +1146,6 @@
         row.className = "sb-item" + (p.name === ap ? " active-turn" : "");
         const left = document.createElement("div");
         left.textContent = p.name;
-
         row.appendChild(left);
 
         if (isHost){
@@ -1200,12 +1159,10 @@
           acts.appendChild(btn);
           row.appendChild(acts);
         }
-
         pl.appendChild(row);
       });
     }
 
-    // wrong guesses list (everyone sees all wrong guesses; no %)
     const lg = document.getElementById("list-guesses");
     if (lg){
       lg.innerHTML = "";
@@ -1217,26 +1174,20 @@
       });
     }
 
-    // controls gating
     const myTurn = (!isHost)
       && (gameState.phase === "TURNS")
       && isActivePlayer(myName)
       && (gameState.status !== "WIN");
 
-    // if not my turn, force close guess UI (no disappearing timers, just correctness)
     if (!myTurn) closeGuessUI();
 
-    // show/hide host rows
     document.getElementById("host-row-adj").style.display  = isHost ? "flex" : "none";
     document.getElementById("host-row-adj2").style.display = isHost ? "flex" : "none";
     document.getElementById("btn-host-call").style.display = isHost ? "block" : "none";
 
-    // show/hide player rows
     document.getElementById("player-row-pass").style.display = isHost ? "none" : "flex";
     document.getElementById("row-guess-idle").style.display  = isHost ? "none" : (document.getElementById("row-guess-input").style.display === "flex" ? "none" : "flex");
-    // row-guess-input is managed by open/close
 
-    // enable/disable player controls
     const btnPass = document.getElementById("btn-pass");
     const btnGuess = document.getElementById("btn-guess");
     const btnSend = document.getElementById("btn-send");
@@ -1244,16 +1195,13 @@
     if (btnGuess) btnGuess.disabled = !myTurn;
     if (btnSend) btnSend.disabled = !myTurn;
 
-    // host adjudication buttons enabled only when pendingGuess exists
     const pending = !!gameState.pendingGuess && (gameState.phase === "ADJUDICATE") && (gameState.status !== "WIN");
     document.getElementById("btn-right").disabled = !pending;
     document.getElementById("btn-wrong").disabled = !pending;
 
-    // host call enabled only when phase CALL and not WIN and there are players
     const canCall = isHost && (gameState.phase === "CALL") && (gameState.status !== "WIN") && playersCount() > 0;
     document.getElementById("btn-host-call").disabled = !canCall;
 
-    // win overlay auto-show for non-host too (on state receipt)
     if ((gameState.status === "WIN" || gameState.phase === "WIN") && gameState.winner){
       showWin(gameState.winner, gameState.winGuess || "");
     }
@@ -1262,14 +1210,9 @@
   /* WIN OVERLAY */
   function showWin(name, guess){
     const ov = document.getElementById("win-overlay");
-    const title = document.getElementById("win-title");
-    const sub = document.getElementById("win-sub");
-    const img = document.getElementById("win-img");
-
-    title.textContent = `${name} wins!`;
-    sub.textContent = `They Guessed: ${guess || "(unknown)"}`;
-
-    if (gameImg) img.src = gameImg;
+    document.getElementById("win-title").textContent = `${name} wins!`;
+    document.getElementById("win-sub").textContent = `They Guessed: ${guess || "(unknown)"}`;
+    if (gameImg) document.getElementById("win-img").src = gameImg;
     ov.style.display = "flex";
   }
   function hideWin(){
@@ -1291,7 +1234,6 @@
 
   /* INIT */
   (function init(){
-    // populate skin selects
     populateSkinSelect("host-style");
     populateSkinSelect("join-style");
     populateSkinSelect("style-in-game");
