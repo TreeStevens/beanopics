@@ -1,242 +1,242 @@
 <!DOCTYPE html>
 <html lang="en">
 <!--
-  REVEAL! v4.6.1 – Turn + Guess UX Fix Pack (NOT 4.7)
+  REVEAL! v4.8 – Host adjudication + turn gating (no fuzzy matching)
 
-  FIXES IN THIS FILE
-  - Turn/pacing: only ACTIVE player can act (PASS/GUESS enabled); others are greyed out.
-  - PASS/GUESS controls are TWO ROWS, fixed height, no resizing.
-    Row 1: PASS (always visible)
-    Row 2: GUESS (idle) -> swaps to [input][SEND] when guessing
-    No X / no timeouts / input never disappears until SEND or PASS.
-  - Auto-advance turn after PASS or SEND.
-  - ENTER submits guess (and SEND button works too).
-  - Host is NOT added as a player.
-  - Host still sees the full board/grid.
-  - Category moved above main card.
-  - Jumbotron panels forced SQUARE (no rectangles).
-  - Current call animation = quick "pop", NOT throbbing.
-  - 23 gimmick REMOVED.
-  - Wrong guesses privacy:
-      * Host sees ALL guesses + %.
-      * Player sees ONLY THEIR guesses + %.
-  - WIN screen:
-      NAME wins!
-      They guessed: ANSWER
-      Revealed picture
-      60% dark overlay + simple fireworks
-      Winning guess NOT shown in sidebar.
+  CORE LOOP (v4.8)
+  - Host CALLS a number -> starts a full player turn-cycle.
+  - Only active player can PASS or GUESS.
+  - If player GUESSES -> game enters ADJUDICATE. Host must click RIGHT/WRONG.
+  - WRONG -> guess added to public list; turn advances.
+  - RIGHT -> WIN overlay (winner + guess + revealed picture). Winning guess NOT shown in sidebar.
+  - CALL NEXT is disabled until the entire cycle completes (everyone has had a turn).
 
   NOTES
-  - This remains MQTT-broker state sync (public topic). Players still RECEIVE all state,
-    but UI filters what they see.
+  - Everyone sees ALL wrong guesses (no %).
+  - Status shows: “NAME is being judged” during adjudication.
+  - Host can SKIP a player.
+  - No 23 gag.
+  - Jumbotron panels are square (no rectangles).
 -->
-
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>REVEAL! v4.6.1</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
+  <title>REVEAL! v4.8</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
 
   <style>
-    /* [A] CORE VARS ------------------------------------------------------ */
     :root{
       --bg-color:#4c1d95;
-      --panel-bg:rgba(0,0,0,0.25);
+      --panel-bg:rgba(0,0,0,.25);
       --accent:#2dd4bf;
-      --text-main:#ffffff;
+      --text-main:#fff;
       --font-head:'Fredoka One',cursive;
       --font-body:'Nunito',sans-serif;
       --tile-off:#1e293b;
+
       --card-max-width:450px;
+      --ink:#0b1220;
     }
 
     *{box-sizing:border-box}
     body{
-      margin:0; padding:0;
-      height:100vh; width:100vw;
-      background:var(--bg-color);
-      color:var(--text-main);
+      margin:0; height:100vh; width:100vw; overflow:hidden;
+      background:var(--bg-color); color:var(--text-main);
       font-family:var(--font-body);
-      display:flex; flex-direction:column;
-      overflow:hidden;
-      transition:background .25s ease;
     }
 
-    /* [B] SCREENS -------------------------------------------------------- */
     .screen{
       position:absolute; inset:0;
-      display:flex; flex-direction:column;
-      align-items:center; justify-content:center;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
       background:var(--bg-color);
+      transform:translateX(100%); transition:transform .25s ease;
       z-index:10;
-      transition:transform .3s ease;
-      transform:translateX(100%);
     }
     .screen.active{transform:translateX(0); z-index:20;}
 
     .card-panel{
-      background:rgba(255,255,255,0.10);
-      backdrop-filter:blur(10px);
-      padding:25px;
+      background:rgba(255,255,255,.1);
+      border:2px solid rgba(255,255,255,.18);
       border-radius:20px;
-      width:90%;
-      max-width:400px;
-      border:2px solid rgba(255,255,255,0.2);
+      width:90%; max-width:420px;
+      padding:22px;
+      backdrop-filter:blur(10px);
+      box-shadow:0 10px 30px rgba(0,0,0,.3);
       text-align:center;
-      box-shadow:0 10px 30px rgba(0,0,0,0.3);
     }
-    .control-group{margin-bottom:15px; text-align:left; width:100%;}
-    label{display:block; font-weight:900; margin-bottom:5px; font-size:.8rem; text-transform:uppercase; opacity:.8}
-    input, select{
-      width:100%; padding:12px;
-      border-radius:10px; border:none;
-      font-family:var(--font-body);
-      font-weight:800; font-size:1.05rem;
-      background:#f8fafc; color:#1e293b;
-      outline:none;
+
+    h1,h2{margin:0 0 12px 0; font-family:var(--font-head);}
+    .control-group{margin:10px 0; text-align:left;}
+    label{
+      display:block; font-weight:900; font-size:.78rem;
+      opacity:.8; text-transform:uppercase; margin:0 0 6px 0;
+    }
+    input,select{
+      width:100%; border:none; border-radius:10px;
+      padding:12px; font-family:var(--font-body); font-weight:900; font-size:1.05rem;
+      outline:none; background:#f8fafc; color:#0f172a;
     }
     .code-input{
-      font-family:'Courier New',monospace;
-      letter-spacing:5px;
-      text-align:center;
-      font-size:1.5rem;
-      text-transform:uppercase;
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      letter-spacing:5px; text-align:center; font-size:1.55rem; text-transform:uppercase;
     }
 
     .big-btn{
-      width:100%;
-      padding:15px;
-      border-radius:12px;
-      border:none;
-      font-family:var(--font-head);
-      font-size:1.2rem;
+      width:100%; border:none; border-radius:12px; padding:15px;
+      font-family:var(--font-head); font-size:1.15rem;
+      background:var(--accent); color:#000;
       cursor:pointer;
-      background:var(--accent);
-      color:#000;
-      box-shadow:0 5px 0 rgba(0,0,0,0.2);
-      margin-top:5px;
-      transition:transform .1s;
+      box-shadow:0 5px 0 rgba(0,0,0,.25);
+      transition:transform .08s;
+      margin-top:8px;
     }
     .big-btn:active{transform:translateY(2px); box-shadow:none;}
-    .big-btn:disabled{background:#64748b; cursor:not-allowed; box-shadow:none; opacity:.7;}
-    .big-btn.secondary{background:rgba(255,255,255,0.2); color:white;}
+    .big-btn.secondary{background:rgba(255,255,255,.18); color:#fff;}
+    .big-btn:disabled{opacity:.55; cursor:not-allowed; box-shadow:none; transform:none;}
 
-    /* [C] GAME LAYOUT ---------------------------------------------------- */
+    /* GAME LAYOUT */
     #screen-game{
       display:grid;
       grid-template-rows: 1fr 60px;
       height:100%; width:100%;
       padding:0;
-      background:var(--bg-color);
     }
     #game-layout{
       display:grid;
-      grid-template-columns: 200px 1fr 200px;
+      grid-template-columns: 220px 1fr 220px;
       overflow:hidden;
     }
     .sidebar{
       background:var(--panel-bg);
-      border-left:1px solid rgba(255,255,255,0.05);
-      border-right:1px solid rgba(255,255,255,0.05);
-      display:flex; flex-direction:column;
+      border-left:1px solid rgba(255,255,255,.05);
+      border-right:1px solid rgba(255,255,255,.05);
       padding:10px;
-      overflow-y:auto;
+      overflow:auto;
     }
     .sb-head{
       font-family:var(--font-head);
-      text-align:center;
       opacity:.65;
-      margin-bottom:10px;
       font-size:.9rem;
+      text-align:center;
+      margin-bottom:10px;
     }
     .sb-item{
-      font-size:.9rem;
-      padding:10px;
-      border-bottom:1px solid rgba(255,255,255,0.05);
+      font-size:.86rem;
+      padding:8px;
+      border-bottom:1px solid rgba(255,255,255,.06);
       word-break:break-word;
-      border-left:4px solid transparent;
-      background:rgba(255,255,255,0.04);
-      border-radius:8px;
-      margin-bottom:8px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
     }
     .sb-item.active-turn{
-      background:rgba(255,255,255,0.18);
-      border-left-color:var(--accent);
+      background:rgba(255,255,255,.18);
+      border-left:4px solid var(--accent);
+      padding-left:6px;
     }
+    .sb-actions{
+      display:flex; gap:6px; flex:0 0 auto;
+    }
+    .mini-btn{
+      border:none; border-radius:8px;
+      padding:6px 8px;
+      font-weight:900;
+      cursor:pointer;
+      background:rgba(255,255,255,.15);
+      color:#fff;
+      font-size:.75rem;
+    }
+    .mini-btn:disabled{opacity:.4; cursor:not-allowed;}
+    .mini-btn.danger{background:rgba(239,68,68,.75);}
 
     #center-stage{
-      display:flex;
-      flex-direction:column;
       padding:10px;
-      overflow-y:auto;
+      overflow:auto;
+      display:flex;
+      justify-content:flex-start;
       align-items:center;
+      flex-direction:column;
     }
     .game-stack{
       width:100%;
       max-width:var(--card-max-width);
       display:flex;
       flex-direction:column;
-      gap:10px;
-      padding-bottom:10px;
+      gap:8px;
     }
 
-    /* [D] HEADER --------------------------------------------------------- */
+    /* HEADER */
     #header-row{
       display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:6px;
+      grid-template-columns:1fr 1fr;
+      gap:4px;
       background:var(--panel-bg);
-      padding:10px;
-      border-radius:12px;
+      padding:6px 6px 5px;
+      border-radius:8px;
     }
     .info-cell{text-align:center; overflow:hidden;}
-    .info-lbl{
-      font-size:.55rem;
-      opacity:.65;
-      font-weight:900;
-      text-transform:uppercase;
-      letter-spacing:.08em;
-    }
-    .info-val{
-      font-weight:900;
-      font-size:.95rem;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
+    .info-lbl{font-size:.52rem; opacity:.65; font-weight:900; text-transform:uppercase;}
+    .info-val{font-size:.85rem; font-weight:900; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
     #inf-code{
-      font-family:'Courier New',monospace;
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       cursor:pointer;
-      background:rgba(255,255,255,0.12);
-      border-radius:8px;
+      background:rgba(255,255,255,.12);
+      border-radius:6px;
+      padding:2px 6px;
       display:inline-block;
-      padding:2px 10px;
     }
-    #info-status{grid-column: 1 / -1;}
+    #info-status{grid-column:1 / -1;}
     #inf-status{font-weight:900;}
 
-    /* [E] JUMBOTRON (SQUARE PANELS) -------------------------------------- */
+    /* CATEGORY ABOVE CARD */
+    #cat-strip{
+      background:rgba(0,0,0,.35);
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:10px;
+      padding:10px 12px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    #cat-strip .left{
+      display:flex; flex-direction:column; align-items:flex-start; gap:2px; min-width:0;
+    }
+    #cat-strip .lbl{font-size:.6rem; opacity:.75; font-weight:900; text-transform:uppercase;}
+    #cat-strip .val{font-size:1rem; font-weight:900; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+    #cat-strip .me{
+      font-size:.8rem;
+      font-weight:900;
+      opacity:.9;
+      background:rgba(255,255,255,.12);
+      padding:6px 10px;
+      border-radius:999px;
+      white-space:nowrap;
+    }
+
+    /* JUMBOTRON (SQUARE PANELS) */
     #jumbotron{
       display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:10px;
+      grid-template-columns:1fr 1fr;
+      gap:8px;
       width:100%;
     }
-    .jumbo-panel{
-      background:rgba(0,0,0,0.35);
-      border:2px solid rgba(255,255,255,0.9);
+    #mini-grid-container,
+    #call-box{
+      aspect-ratio:1/1;          /* <-- stops rectangles */
+      width:100%;
       border-radius:12px;
-      aspect-ratio: 1 / 1;     /* force squares */
       overflow:hidden;
+      border:2px solid rgba(255,255,255,.9);
+      background:#020617;
       display:flex;
       align-items:center;
       justify-content:center;
+      position:relative;
     }
-
-    /* Called numbers panel */
-    #mini-grid-container{ padding:10px; }
+    #mini-grid-container{padding:8px;}
     #mini-grid{
       width:100%;
       height:100%;
@@ -246,330 +246,308 @@
       gap:0;
     }
     .trk-cell{
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      color:rgba(148,163,184,0.95);
-      font-size:.85rem;
+      display:flex; align-items:center; justify-content:center;
+      color:rgba(148,163,184,.9);
       font-weight:900;
+      font-size:.78rem;
       user-select:none;
     }
     .trk-cell.active{
       color:var(--accent);
-      text-shadow:0 0 8px var(--accent);
+      text-shadow:0 0 10px var(--accent);
     }
 
-    /* Current call panel */
-    #call-box{
-      position:relative;
-      display:flex;
-      flex-direction:column;
-      align-items:center;
-      justify-content:center;
-      gap:6px;
-      padding:10px;
-      background:rgba(0,0,0,0.7);
-    }
+    /* Current call panel – NO throbbing */
+    #call-box{background:#000;}
     .call-lbl{
-      position:absolute;
-      top:10px;
-      font-size:.72rem;
-      opacity:.7;
-      text-transform:uppercase;
-      letter-spacing:.12em;
+      position:absolute; top:8px;
+      font-size:.7rem; opacity:.55; font-weight:900;
+      text-transform:uppercase; letter-spacing:1px;
     }
     .call-val{
       font-family:var(--font-head);
       font-size:5rem;
       line-height:1;
-      color:white;
-      transform-origin:center;
+      color:#fff;
+      transform:translateY(6px);
+      animation:callPop .22s ease;
     }
-    .call-pop{ animation: callPop .18s ease-out; }
     @keyframes callPop{
-      0%{ transform:scale(.85); filter:brightness(1.0); }
-      100%{ transform:scale(1.0); filter:brightness(1.15); }
+      from{transform:translateY(6px) scale(.92); opacity:.2;}
+      to{transform:translateY(6px) scale(1); opacity:1;}
     }
 
-    /* CATEGORY STRIP (moved above main card) ------------------------------ */
-    #cat-strip{
-      background:var(--panel-bg);
-      border:1px solid rgba(255,255,255,0.10);
-      border-radius:12px;
-      padding:10px 12px;
-      display:flex;
-      justify-content:center;
-      gap:10px;
-      align-items:baseline;
-      text-align:center;
-    }
-    #cat-strip .lbl{
-      font-size:.7rem;
-      opacity:.7;
-      font-weight:900;
-      letter-spacing:.12em;
-      text-transform:uppercase;
-    }
-    #cat-strip .val{
-      font-family:var(--font-head);
-      font-size:1.05rem;
-    }
-
-    /* [F] CARD + TILES ---------------------------------------------------- */
+    /* CARD */
     #card-wrapper{
       width:100%;
-      aspect-ratio: 1 / 1;
+      aspect-ratio:1/1;
       position:relative;
       background:#000;
-      border:4px solid rgba(255,255,255,0.9);
+      border:4px solid rgba(255,255,255,.95);
       border-radius:12px;
-      box-shadow:0 10px 40px rgba(0,0,0,0.4);
       overflow:hidden;
+      box-shadow:0 10px 40px rgba(0,0,0,.35);
     }
     #target-img{
+      position:absolute; inset:0;
       width:100%; height:100%;
       object-fit:cover;
-      position:absolute; inset:0;
       z-index:1;
     }
     #tile-grid{
       position:absolute; inset:0;
-      z-index:10;
       display:grid;
       grid-template-columns:repeat(5,1fr);
       grid-template-rows:repeat(5,1fr);
       gap:0;
+      z-index:10;
     }
     .tile{
       background:var(--tile-off);
-      color:rgba(255,255,255,0.28);
-      display:flex;
-      align-items:center;
-      justify-content:center;
+      color:rgba(255,255,255,.25);
+      display:flex; align-items:center; justify-content:center;
       font-family:var(--font-head);
       font-size:2rem;
-      cursor:pointer;
       user-select:none;
-      transition:opacity .2s ease;
+      cursor:pointer;
+      transition:opacity .18s ease;
     }
-    .tile.locked{ cursor:not-allowed; opacity:1 !important; }
-    .tile.revealed{ opacity:0; pointer-events:none; }
+    .tile.revealed{opacity:0; pointer-events:none;}
 
-    /* [G] CONTROLS: TWO ROWS, FIXED HEIGHT -------------------------------- */
-    #controls-bar{
+    /* CONTROLS (2 ROWS PLAYER, 2 ROWS HOST) */
+    #controls-zone{
       width:100%;
-      height:110px;              /* fixed; never changes */
       display:flex;
       flex-direction:column;
-      gap:10px;
+      gap:8px;
     }
     .ctrl-row{
-      height:50px;
+      width:100%;
       display:flex;
       gap:10px;
+      height:56px;
     }
     .ctrl-btn{
       flex:1 1 auto;
-      height:100%;
-      border-radius:12px;
       border:none;
+      border-radius:12px;
       font-family:var(--font-head);
-      font-size:1.25rem;
+      font-size:1.15rem;
       cursor:pointer;
-      box-shadow:0 4px 0 rgba(0,0,0,0.3);
+      box-shadow:0 5px 0 rgba(0,0,0,.25);
+      transition:transform .08s;
     }
-    .ctrl-btn:active{ transform:translateY(4px); box-shadow:none; }
-    .btn-pass{ background:#ef4444; color:white; }
-    .btn-guess{ background:var(--accent); color:black; }
-    .btn-send{ background:var(--accent); color:black; flex:0 0 120px; }
-
-    .ctrl-btn.disabled,
-    .ctrl-input.disabled{
-      opacity:.35;
-      cursor:not-allowed;
-      box-shadow:none;
-      pointer-events:none;
-    }
-
+    .ctrl-btn:active{transform:translateY(2px); box-shadow:none;}
+    .ctrl-btn:disabled{opacity:.45; cursor:not-allowed; transform:none; box-shadow:none;}
+    .btn-pass{background:#ef4444; color:#fff;}
+    .btn-guess{background:var(--accent); color:#000;}
+    .btn-send{background:#fff; color:#000; flex:0 0 130px;}
     .ctrl-input{
       flex:1 1 auto;
-      height:100%;
-      padding:0 14px;
-      border-radius:12px;
-      border:none;
-      font-size:1.15rem;
-      text-align:center;
-      outline:none;
-      background:white;
-      color:black;
-      min-width:0;
+      border:none; border-radius:12px;
       font-weight:900;
-      font-family:var(--font-body);
+      font-size:1.1rem;
+      text-align:center;
+      padding:0 14px;
+      outline:none;
     }
 
-    /* [H] FOOTER CHAT PLACEHOLDER ----------------------------------------- */
+    /* HOST CALL BUTTON BAR (bottom) */
     #chat-bar{
-      background:rgba(0,0,0,0.35);
+      background:rgba(0,0,0,.35);
+      border-top:1px solid rgba(255,255,255,.08);
       padding:10px;
       display:flex;
       gap:10px;
       align-items:center;
-      border-top:1px solid rgba(255,255,255,0.1);
     }
-    #chat-input{ flex:1; padding:10px; border-radius:10px; border:none; font-family:var(--font-body); outline:none; margin:0; }
-    #chat-send{ width:70px; border-radius:10px; border:none; background:#3b82f6; color:white; font-weight:900; cursor:pointer; }
+    #chat-input{flex:1; border:none; border-radius:10px; padding:10px; outline:none;}
+    #chat-send{border:none; border-radius:10px; padding:10px 12px; font-weight:900; cursor:pointer;}
 
-    /* [I] WIN OVERLAY + FIREWORKS ----------------------------------------- */
-    #win-overlay{
+    /* TOAST */
+    #toast{
       position:fixed;
-      inset:0;
+      bottom:90px;
+      left:50%;
+      transform:translateX(-50%);
+      background:rgba(15,23,42,.96);
+      color:#fbbf24;
+      padding:10px 16px;
+      border-radius:999px;
+      font-size:.9rem;
+      font-weight:900;
+      z-index:999;
+      opacity:0;
+      pointer-events:none;
+      transition:opacity .2s ease;
+    }
+    #toast.show{opacity:1;}
+
+    /* WIN OVERLAY */
+    #win-overlay{
+      position:fixed; inset:0;
+      background:rgba(0,0,0,.60);
+      z-index:9999;
       display:none;
       align-items:center;
       justify-content:center;
-      background:rgba(0,0,0,0.60);
-      z-index:9999;
+      padding:18px;
+    }
+    #win-card{
+      width:100%;
+      max-width:520px;
+      border-radius:18px;
+      background:rgba(255,255,255,.10);
+      border:2px solid rgba(255,255,255,.20);
+      backdrop-filter:blur(10px);
+      box-shadow:0 20px 60px rgba(0,0,0,.45);
+      padding:16px;
+      text-align:center;
+      position:relative;
       overflow:hidden;
     }
-    #win-overlay.show{ display:flex; }
-
-    .win-card{
-      width:min(520px, 92vw);
-      background:rgba(15,23,42,0.92);
-      border:2px solid rgba(255,255,255,0.25);
-      border-radius:18px;
-      padding:18px;
-      text-align:center;
-      box-shadow:0 20px 60px rgba(0,0,0,0.55);
-      backdrop-filter:blur(8px);
-      position:relative;
-      z-index:2;
-    }
-    .win-title{
+    #win-title{
       font-family:var(--font-head);
       font-size:2rem;
-      margin:0 0 8px;
+      margin:6px 0 6px;
     }
-    .win-sub{
+    #win-sub{
       font-weight:900;
       opacity:.9;
       margin:0 0 12px;
+      word-break:break-word;
     }
-    .win-img{
+    #win-reveal{
       width:100%;
       aspect-ratio:1/1;
       border-radius:14px;
-      border:2px solid rgba(255,255,255,0.2);
-      object-fit:cover;
+      border:2px solid rgba(255,255,255,.75);
+      overflow:hidden;
+      margin-top:12px;
+      position:relative;
+      background:#000;
     }
-
+    #win-img{
+      width:100%; height:100%;
+      object-fit:cover;
+      display:block;
+    }
     /* simple fireworks */
     .fw{
       position:absolute;
-      bottom:-40px;
-      width:10px; height:10px;
-      border-radius:999px;
+      width:8px; height:8px;
+      border-radius:50%;
       background:var(--accent);
-      animation: fwShoot 1.2s ease-out infinite;
       opacity:.9;
-      z-index:1;
+      animation:fw 1.1s ease-out infinite;
+      filter:drop-shadow(0 0 8px var(--accent));
     }
-    .fw:nth-child(1){ left:10%; animation-delay:0s; }
-    .fw:nth-child(2){ left:25%; animation-delay:.2s; }
-    .fw:nth-child(3){ left:40%; animation-delay:.4s; }
-    .fw:nth-child(4){ left:60%; animation-delay:.1s; }
-    .fw:nth-child(5){ left:75%; animation-delay:.35s; }
-    .fw:nth-child(6){ left:90%; animation-delay:.55s; }
-    @keyframes fwShoot{
-      0%{ transform:translateY(0) scale(1); filter:brightness(1); }
-      60%{ transform:translateY(-65vh) scale(1.2); filter:brightness(1.25); }
-      100%{ transform:translateY(-78vh) scale(0.2); opacity:0; }
+    .fw:nth-child(1){left:8%; top:85%; animation-delay:.0s;}
+    .fw:nth-child(2){left:22%; top:80%; animation-delay:.2s;}
+    .fw:nth-child(3){left:78%; top:86%; animation-delay:.35s;}
+    .fw:nth-child(4){left:90%; top:82%; animation-delay:.5s;}
+    @keyframes fw{
+      0%{transform:translateY(0) scale(1); opacity:0;}
+      15%{opacity:1;}
+      60%{transform:translateY(-220px) scale(1.2); opacity:1;}
+      100%{transform:translateY(-260px) scale(.2); opacity:0;}
     }
 
-    /* [J] MOBILE ---------------------------------------------------------- */
-    @media (max-width: 800px){
-      #game-layout{ grid-template-columns:1fr; }
-      .sidebar{ display:none; }
-      #chat-bar{ display:none; }
+    @media (max-width: 900px){
+      #game-layout{grid-template-columns:1fr;}
+      .sidebar{display:none;}
     }
   </style>
 </head>
 
 <body>
-
-  <!-- [S1] LOBBY ---------------------------------------------------------- -->
+  <!-- LOBBY -->
   <div id="screen-lobby" class="screen active">
     <div class="card-panel">
-      <h1>REVEAL! v4.6.1</h1>
-      <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
-        <button class="big-btn" onclick="goTo('screen-host-setup')">HOST GAME</button>
-        <div style="opacity:0.5; margin:5px 0;">OR</div>
-        <button class="big-btn secondary" onclick="goTo('screen-join-code')">JOIN GAME</button>
+      <h1>REVEAL! v4.8</h1>
+      <div style="display:flex; flex-direction:column; gap:10px; margin-top:16px;">
+        <button class="big-btn" onclick="showHostSetup()">HOST GAME</button>
+        <div style="opacity:.55; margin:4px 0;">OR</div>
+        <button class="big-btn secondary" onclick="showJoinSetup()">JOIN GAME</button>
       </div>
     </div>
   </div>
 
-  <!-- [S2] HOST SETUP ----------------------------------------------------- -->
+  <!-- HOST SETUP -->
   <div id="screen-host-setup" class="screen">
     <div class="card-panel">
       <h2>GAME SETUP</h2>
-      <div class="control-group"><label>HOST NAME</label><input type="text" id="host-name" placeholder="Name"></div>
-      <div class="control-group"><label>CATEGORY</label><input type="text" id="game-cat" placeholder="e.g. Landmarks"></div>
-      <div class="control-group"><label>ANSWER</label><input type="text" id="game-ans" placeholder="Secret Answer"></div>
-      <div class="control-group"><label>IMAGE</label><input type="file" id="img-upload" accept="image/*" onchange="processImage()"></div>
-      <div class="control-group"><label>STYLE (PREVIEW)</label>
-        <select id="host-style" onchange="setSkin(this.value)">
-          <option value="neon">Neon Grape</option>
-          <option value="darkacad">Dark Academia</option>
-          <option value="artdeco">Art Deco</option>
-          <option value="slate">Storm Slate</option>
-          <option value="sunset">Miami Sunset</option>
-          <option value="forest">Cryptid Forest</option>
-          <option value="carnival">Killer Carnival</option>
+
+      <div class="control-group">
+        <label>HOST NAME</label>
+        <input id="host-name" type="text" placeholder="Name">
+      </div>
+
+      <div class="control-group">
+        <label>CATEGORY</label>
+        <input id="game-cat" type="text" placeholder="e.g. 80s Movies">
+      </div>
+
+      <div class="control-group">
+        <label>ANSWER</label>
+        <input id="game-ans" type="text" placeholder="Secret Answer">
+      </div>
+
+      <div class="control-group">
+        <label>IMAGE</label>
+        <input id="img-upload" type="file" accept="image/*" onchange="processImage()">
+      </div>
+
+      <div class="control-group">
+        <label>STYLE (PREVIEW)</label>
+        <select id="host-style" onchange="setMySkin(this.value)">
+          <!-- populated by JS -->
         </select>
       </div>
 
       <button class="big-btn" id="btn-create" disabled onclick="createGame()">CREATE ROOM</button>
-      <button class="big-btn secondary" onclick="goTo('screen-lobby')" style="margin-top:15px; font-size:1rem;">BACK</button>
+      <button class="big-btn secondary" onclick="goTo('screen-lobby')" style="margin-top:12px; font-size:1rem;">BACK</button>
     </div>
   </div>
 
-  <!-- [S3] JOIN CODE ------------------------------------------------------ -->
+  <!-- JOIN CODE -->
   <div id="screen-join-code" class="screen">
     <div class="card-panel">
       <h2>ENTER CODE</h2>
-      <input type="text" id="join-code" class="code-input" maxlength="4" placeholder="ABCD">
+      <input id="join-code" class="code-input" type="text" maxlength="4" placeholder="ABCD">
       <button class="big-btn" id="btn-search" onclick="searchRoom()">NEXT</button>
-      <button class="big-btn secondary" onclick="goTo('screen-lobby')" style="margin-top:15px; font-size:1rem;">BACK</button>
+      <button class="big-btn secondary" onclick="goTo('screen-lobby')" style="margin-top:12px; font-size:1rem;">BACK</button>
     </div>
   </div>
 
-  <!-- [S4] JOIN NAME ------------------------------------------------------ -->
+  <!-- JOIN SETUP -->
   <div id="screen-join-setup" class="screen">
     <div class="card-panel">
       <h2 id="join-room-disp">ROOM FOUND</h2>
-      <div id="join-host-disp" style="color:var(--accent); margin-bottom:15px; font-weight:bold;">Connecting...</div>
-      <input type="text" id="join-name" placeholder="YOUR NAME">
-      <div class="control-group" style="margin-top:12px;"><label>STYLE (PREVIEW)</label>
-        <select id="join-style" onchange="setSkin(this.value)">
-          <option value="neon">Neon Grape</option>
-          <option value="darkacad">Dark Academia</option>
-          <option value="artdeco">Art Deco</option>
-          <option value="slate">Storm Slate</option>
-          <option value="sunset">Miami Sunset</option>
-          <option value="forest">Cryptid Forest</option>
-          <option value="carnival">Killer Carnival</option>
+      <div id="join-host-disp" style="color:var(--accent); font-weight:900; margin-bottom:12px;">Connecting...</div>
+
+      <div class="control-group">
+        <label>YOUR NAME</label>
+        <input id="join-name" type="text" placeholder="Your name">
+      </div>
+
+      <div class="control-group">
+        <label>STYLE (PREVIEW)</label>
+        <select id="join-style" onchange="setMySkin(this.value)">
+          <!-- populated by JS -->
         </select>
       </div>
+
       <button class="big-btn" id="btn-enter" disabled onclick="enterGame()">ENTER GAME</button>
-      <button class="big-btn secondary" onclick="goTo('screen-lobby')" style="margin-top:15px; font-size:1rem;">BACK</button>
+      <button class="big-btn secondary" onclick="goTo('screen-lobby')" style="margin-top:12px; font-size:1rem;">BACK</button>
     </div>
   </div>
 
-  <!-- [S5] GAME ----------------------------------------------------------- -->
+  <!-- GAME -->
   <div id="screen-game" class="screen">
     <div id="game-layout">
 
-      <!-- LEFT: PLAYERS -->
+      <!-- LEFT -->
       <div class="sidebar" id="sb-players">
         <div class="sb-head">PLAYERS</div>
         <div id="list-players"></div>
@@ -579,32 +557,25 @@
       <div id="center-stage">
         <div class="game-stack">
 
-          <!-- HEADER -->
           <div id="header-row">
             <div class="info-cell">
               <div class="info-lbl">HOST</div>
               <div class="info-val" id="inf-host">?</div>
             </div>
             <div class="info-cell">
-              <div class="info-lbl">YOU</div>
-              <div class="info-val" id="inf-you">?</div>
+              <div class="info-lbl">ROOM</div>
+              <div class="info-val" id="inf-code" onclick="copyCode()">????</div>
             </div>
 
             <div class="info-cell">
-              <div class="info-lbl">CODE</div>
-              <div class="info-val" id="inf-code" onclick="copyCode()">????</div>
+              <div class="info-lbl">STYLE</div>
+              <select id="style-in-game" onchange="setMySkin(this.value)" style="padding:0;margin:0;height:22px;font-size:.85rem;background:transparent;color:#fff;border:none;outline:none;">
+                <!-- populated by JS -->
+              </select>
             </div>
             <div class="info-cell">
-              <div class="info-lbl">STYLE</div>
-              <select id="style-in-game" onchange="setSkin(this.value)" style="padding:0;margin:0;height:22px;font-size:.9rem;background:transparent;color:white;border:none;outline:none;font-weight:900;">
-                <option value="neon">Neon Grape</option>
-                <option value="darkacad">Dark Academia</option>
-                <option value="artdeco">Art Deco</option>
-                <option value="slate">Storm Slate</option>
-                <option value="sunset">Miami Sunset</option>
-                <option value="forest">Cryptid Forest</option>
-                <option value="carnival">Killer Carnival</option>
-              </select>
+              <div class="info-lbl">PHASE</div>
+              <div class="info-val" id="inf-phase">?</div>
             </div>
 
             <div class="info-cell" id="info-status">
@@ -613,287 +584,324 @@
             </div>
           </div>
 
-          <!-- JUMBOTRON -->
+          <div id="cat-strip">
+            <div class="left">
+              <div class="lbl">CATEGORY</div>
+              <div class="val" id="inf-cat">?</div>
+            </div>
+            <div class="me" id="me-pill">ME: ?</div>
+          </div>
+
           <div id="jumbotron">
-            <div id="mini-grid-container" class="jumbo-panel">
+            <div id="mini-grid-container">
               <div id="mini-grid"></div>
             </div>
-            <div id="call-box" class="jumbo-panel">
-              <div class="call-lbl">CURRENT CALL</div>
-              <div class="call-val" id="call-val">--</div>
+            <div id="call-box">
+              <div class="call-lbl" id="call-label">CURRENT CALL</div>
+              <div class="call-val" id="current-call-text">--</div>
             </div>
           </div>
 
-          <!-- CATEGORY STRIP -->
-          <div id="cat-strip">
-            <div class="lbl">CATEGORY</div>
-            <div class="val" id="cat-val">?</div>
-          </div>
-
-          <!-- CARD -->
           <div id="card-wrapper">
-            <img id="target-img" src="" alt="">
+            <img id="target-img" src="">
             <div id="tile-grid"></div>
           </div>
 
-          <!-- CONTROLS (TWO ROWS) -->
-          <div id="controls-bar">
-            <div class="ctrl-row">
+          <!-- CONTROLS ZONE -->
+          <div id="controls-zone">
+            <!-- PLAYER -->
+            <div class="ctrl-row" id="player-row-pass">
               <button id="btn-pass" class="ctrl-btn btn-pass" onclick="passTurn()">PASS</button>
             </div>
 
-            <!-- Row 2: idle guess button -->
             <div class="ctrl-row" id="row-guess-idle">
               <button id="btn-guess" class="ctrl-btn btn-guess" onclick="openGuess()">GUESS</button>
             </div>
 
-            <!-- Row 2: active guess input -->
             <div class="ctrl-row" id="row-guess-input" style="display:none;">
               <input id="guess-field" class="ctrl-input" type="text" placeholder="TYPE YOUR GUESS">
               <button id="btn-send" class="ctrl-btn btn-send" onclick="sendGuess()">SEND</button>
             </div>
-          </div>
 
-          <!-- HOST BUTTON (kept separate but only visible if host) -->
-          <div style="width:100%;">
+            <!-- HOST -->
+            <div class="ctrl-row" id="host-row-adj" style="display:none;">
+              <button id="btn-wrong" class="ctrl-btn btn-pass" onclick="hostJudge(false)">WRONG</button>
+            </div>
+            <div class="ctrl-row" id="host-row-adj2" style="display:none;">
+              <button id="btn-right" class="ctrl-btn btn-guess" onclick="hostJudge(true)">RIGHT</button>
+            </div>
+
+            <!-- HOST CALL -->
             <button id="btn-host-call" class="big-btn" style="display:none; margin-top:0;" onclick="hostCall()">CALL NEXT NUMBER</button>
           </div>
 
         </div>
       </div>
 
-      <!-- RIGHT: WRONG GUESSES -->
+      <!-- RIGHT -->
       <div class="sidebar" id="sb-guesses">
         <div class="sb-head">WRONG GUESSES</div>
         <div id="list-guesses"></div>
       </div>
+
     </div>
 
-    <!-- FOOTER CHAT PLACEHOLDER -->
+    <!-- FOOTER (placeholder) -->
     <div id="chat-bar">
-      <input type="text" id="chat-input" placeholder="Chat...">
-      <button id="chat-send" onclick="alert('Chat later.')">SEND</button>
+      <input id="chat-input" type="text" placeholder="Chat... (later)">
+      <button id="chat-send" onclick="alert('Chat later')">SEND</button>
     </div>
   </div>
 
+  <!-- TOAST -->
+  <div id="toast"></div>
+
   <!-- WIN OVERLAY -->
   <div id="win-overlay">
-    <div class="fw"></div><div class="fw"></div><div class="fw"></div><div class="fw"></div><div class="fw"></div><div class="fw"></div>
-    <div class="win-card">
-      <h2 class="win-title" id="win-title">Someone wins!</h2>
-      <p class="win-sub" id="win-sub">They guessed: ???</p>
-      <img class="win-img" id="win-img" src="" alt="">
+    <div id="win-card">
+      <div class="fw"></div><div class="fw"></div><div class="fw"></div><div class="fw"></div>
+      <div id="win-title">SOMEONE wins!</div>
+      <div id="win-sub">They Guessed: ???</div>
+      <div id="win-reveal">
+        <img id="win-img" src="">
+      </div>
+      <button class="big-btn secondary" style="margin-top:12px;" onclick="hideWin()">CLOSE</button>
     </div>
   </div>
 
 <script>
-  /* [1] SKINS ------------------------------------------------------------ */
+  /* SKINS (names restored) */
   const SKINS = {
-    neon:     { bg:'#4c1d95', acc:'#2dd4bf', text:'#ffffff', tile:'#1e293b' }, // Neon Grape
-    darkacad: { bg:'#0b1220', acc:'#d4b483', text:'#f8f5ee', tile:'#111827' }, // Dark Academia
-    artdeco:  { bg:'#0f172a', acc:'#fbbf24', text:'#fff7ed', tile:'#1f2937' }, // Art Deco
-    slate:    { bg:'#0f172a', acc:'#38bdf8', text:'#e2e8f0', tile:'#1f2937' }, // Storm Slate
-    sunset:   { bg:'#7c2d12', acc:'#fb7185', text:'#fff7ed', tile:'#451a03' }, // Miami Sunset
-    forest:   { bg:'#064e3b', acc:'#a7f3d0', text:'#ecfdf5', tile:'#052e16' }, // Cryptid Forest
-    carnival: { bg:'#3b0764', acc:'#f472b6', text:'#fae8ff', tile:'#1f0933' }, // Killer Carnival
+    neon_grape:   { label:"Neon Grape",     bg:"#4c1d95", acc:"#2dd4bf", text:"#ffffff", tile:"#1e293b" },
+    dark_academia:{ label:"Dark Academia",  bg:"#12100e", acc:"#d6ad60", text:"#f5efe6", tile:"#2a2420" },
+    art_deco:     { label:"Art Deco",       bg:"#0b1220", acc:"#f5c542", text:"#f8fafc", tile:"#1f2937" },
+    midnight_gold:{ label:"Midnight Gold",  bg:"#18181b", acc:"#facc15", text:"#f4f4f5", tile:"#27272a" },
+    storm_slate:  { label:"Storm Slate",    bg:"#0f172a", acc:"#38bdf8", text:"#e2e8f0", tile:"#1f2937" },
+    miami_sunset: { label:"Miami Sunset",   bg:"#7c2d12", acc:"#fb7185", text:"#fff7ed", tile:"#451a03" },
+    cryptid_forest:{label:"Cryptid Forest", bg:"#064e3b", acc:"#a7f3d0", text:"#ecfdf5", tile:"#052e16" },
+    killer_carnival:{label:"Killer Carnival",bg:"#3b0764",acc:"#f472b6", text:"#fae8ff", tile:"#1f0933" },
+    blue_ice:     { label:"Blue Ice",       bg:"#0c4a6e", acc:"#a5f3fc", text:"#ecfeff", tile:"#083344" },
+    lava_lamp:    { label:"Lava Lamp",      bg:"#7f1d1d", acc:"#fdba74", text:"#fff7ed", tile:"#3f0b0b" },
+    old_paper:    { label:"Old Paper",      bg:"#1c1917", acc:"#fbbf24", text:"#fef3c7", tile:"#292524" },
+    mono_punch:   { label:"Mono Punch",     bg:"#111827", acc:"#ffffff", text:"#ffffff", tile:"#374151" }
   };
 
-  let currentSkin = localStorage.getItem('reveal_skin_v461') || 'neon';
+  let mySkinKey = localStorage.getItem("reveal_skin") || "neon_grape";
 
-  function applySkin(key){
-    const s = SKINS[key] || SKINS.neon;
+  function applySkin(k){
+    const s = SKINS[k] || SKINS.neon_grape;
     const r = document.documentElement.style;
-    r.setProperty('--bg-color', s.bg);
-    r.setProperty('--accent', s.acc);
-    r.setProperty('--text-main', s.text);
-    r.setProperty('--tile-off', s.tile);
+    r.setProperty("--bg-color", s.bg);
+    r.setProperty("--accent", s.acc);
+    r.setProperty("--text-main", s.text);
+    r.setProperty("--tile-off", s.tile);
   }
 
-  function syncSkinSelects(){
-    const ids = ['host-style','join-style','style-in-game'];
+  function setMySkin(k){
+    mySkinKey = k;
+    localStorage.setItem("reveal_skin", mySkinKey);
+    applySkin(mySkinKey);
+
+    // keep all selects synced to actual chosen skin
+    const ids = ["host-style","join-style","style-in-game"];
     ids.forEach(id=>{
       const el = document.getElementById(id);
-      if (el) el.value = currentSkin;
+      if (el) el.value = mySkinKey;
     });
   }
 
-  function setSkin(key){
-    currentSkin = key;
-    localStorage.setItem('reveal_skin_v461', currentSkin);
-    applySkin(currentSkin);
-    syncSkinSelects();
+  function populateSkinSelect(id){
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    sel.innerHTML = "";
+    Object.entries(SKINS).forEach(([k,v])=>{
+      const opt = document.createElement("option");
+      opt.value = k;
+      opt.textContent = v.label;
+      sel.appendChild(opt);
+    });
+    sel.value = mySkinKey;
   }
 
-  applySkin(currentSkin);
-
-  /* [2] GLOBAL STATE ----------------------------------------------------- */
-  let myName = '';
-  let roomCode = '';
+  /* GLOBAL STATE */
+  let myName = "";
+  let roomCode = "";
   let isHost = false;
   let client = null;
   let gameImg = null;
 
-  const BROKER    = 'wss://broker.emqx.io:8084/mqtt';
-  const TOPIC_PRE = 'reveal_v4_6_1';
-
-  // authoritative state is broadcast by host
   let gameState = {
-    host: "",
-    cat: "",
-    ans: "",
-    players: [],           // [{name}]
-    activeIdx: 0,          // index into players[]
-    guesses: [],           // {from, txt, pct}  (wrong guesses only)
-    revealed: [],          // [numbers called]
-    status: "WAITING",     // WAITING | WIN
-    winner: "",
-    winGuess: ""
+    host:"",
+    cat:"",
+    ans:"",
+    players:[],           // [{name}]
+    activeIdx:0,
+    roundStartIdx:0,
+    phase:"CALL",         // CALL | TURNS | ADJUDICATE | WIN
+    pendingGuess:null,    // {from, txt}
+    guesses:[],           // WRONG ONLY: {from, txt}
+    revealed:[],
+    status:"WAITING",
+    winner:"",
+    winGuess:""
   };
 
-  /* [3] NAV -------------------------------------------------------------- */
-  function goTo(id){
-    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
-    const el = document.getElementById(id);
-    if (el) el.classList.add('active');
-  }
+  const BROKER = "wss://broker.emqx.io:8084/mqtt";
+  const TOPIC_PRE = "reveal_v4_8"; // new version topic
 
-  /* [4] IMAGE HANDLING (HOST) -------------------------------------------- */
+  /* NAV */
+  function goTo(id){
+    document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
+    const el = document.getElementById(id);
+    if (el) el.classList.add("active");
+  }
+  function showHostSetup(){ goTo("screen-host-setup"); }
+  function showJoinSetup(){ goTo("screen-join-code"); }
+
+  /* IMAGE */
   function processImage(){
-    const file = document.getElementById('img-upload').files[0];
+    const file = document.getElementById("img-upload").files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (e)=>{
       const img = new Image();
       img.src = e.target.result;
       img.onload = ()=>{
-        const c = document.createElement('canvas');
-        const ctx = c.getContext('2d');
+        const c = document.createElement("canvas");
+        const ctx = c.getContext("2d");
         const s = Math.min(img.width, img.height);
-        c.width = 600; c.height = 600;
-        ctx.drawImage(img, (img.width - s)/2, (img.height - s)/2, s, s, 0, 0, 600, 600);
-        gameImg = c.toDataURL('image/jpeg', 0.72);
-        document.getElementById('btn-create').disabled = false;
+        c.width = 700; c.height = 700;
+        ctx.drawImage(img, (img.width - s)/2, (img.height - s)/2, s, s, 0, 0, 700, 700);
+        gameImg = c.toDataURL("image/jpeg", 0.75);
+        document.getElementById("btn-create").disabled = false;
       };
     };
     reader.readAsDataURL(file);
   }
 
-  /* [5] MQTT ------------------------------------------------------------- */
+  /* MQTT */
   function connectMQTT(){
     if (client) return;
     client = mqtt.connect(BROKER);
-
-    client.on('connect', ()=>{
+    client.on("connect", ()=>{
       client.subscribe(`${TOPIC_PRE}/${roomCode}`);
       if (!isHost){
-        client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'REQ_STATE'}));
+        client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:"REQ_STATE"}));
       }
     });
-
-    client.on('message', handleMsg);
+    client.on("message", handleMsg);
   }
 
-  function sendState(){
-    if (client && client.connected && isHost){
-      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({
-        type:'STATE',
-        state: gameState,
-        img: gameImg
-      }));
-    }
-  }
-
-  /* [6] HOST: CREATE ------------------------------------------------------ */
+  /* GAME CREATE / JOIN */
   function createGame(){
-    myName = (document.getElementById('host-name').value || '').trim() || 'Host';
-    isHost = true;
-
+    myName = (document.getElementById("host-name").value || "").trim() || "Host";
     gameState.host = myName;
-    gameState.cat  = (document.getElementById('game-cat').value || '').trim();
-    gameState.ans  = (document.getElementById('game-ans').value || '').trim();
-    gameState.players = [];
+    gameState.cat  = (document.getElementById("game-cat").value || "").trim();
+    gameState.ans  = (document.getElementById("game-ans").value || "").trim();
+
+    gameState.players = [];         // IMPORTANT: host is NOT a player
     gameState.activeIdx = 0;
+    gameState.roundStartIdx = 0;
+    gameState.phase = "CALL";
+    gameState.pendingGuess = null;
     gameState.guesses = [];
     gameState.revealed = [];
     gameState.status = "WAITING";
     gameState.winner = "";
     gameState.winGuess = "";
 
-    roomCode = Math.random().toString(36).substr(2,4).toUpperCase();
+    roomCode = Math.random().toString(36).slice(2,6).toUpperCase();
+    isHost = true;
 
     connectMQTT();
-    startGameUI();
-
+    startGame();
     sendState();
+
+    // keep state alive
     setInterval(()=>{
       if (client && client.connected && isHost) sendState();
-    }, 1500);
+    }, 2000);
   }
 
-  /* [7] JOIN -------------------------------------------------------------- */
   function searchRoom(){
-    const code = (document.getElementById('join-code').value || '').trim().toUpperCase();
-    if (code.length !== 4){ alert('Enter 4-letter code.'); return; }
+    const code = (document.getElementById("join-code").value || "").trim().toUpperCase();
+    if (code.length !== 4) { alert("Enter 4-letter code."); return; }
     roomCode = code;
     isHost = false;
-
-    document.getElementById('btn-search').innerText = 'SEARCHING...';
+    document.getElementById("btn-search").textContent = "SEARCHING...";
     connectMQTT();
   }
 
   function enterGame(){
-    myName = (document.getElementById('join-name').value || '').trim();
+    myName = (document.getElementById("join-name").value || "").trim();
     if (!myName) return;
-
     if (client && client.connected){
-      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'JOIN', name: myName}));
+      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:"JOIN", name: myName}));
     }
-
-    startGameUI();
+    startGame();
   }
 
-  /* [8] UI INIT ----------------------------------------------------------- */
-  function startGameUI(){
-    goTo('screen-game');
+  /* TURN HELPERS */
+  function playersCount(){ return (gameState.players || []).length; }
+  function clampIdx(i){ return Math.max(0, Math.min(i, playersCount()-1)); }
+  function getActivePlayerName(){
+    const ps = gameState.players || [];
+    if (!ps.length) return "";
+    const idx = clampIdx(gameState.activeIdx || 0);
+    return ps[idx]?.name || "";
+  }
+  function isActivePlayer(name){
+    return !!name && name === getActivePlayerName();
+  }
+  function advanceTurn(){
+    const ps = gameState.players || [];
+    if (!ps.length) { gameState.activeIdx = 0; return; }
+    gameState.activeIdx = ((gameState.activeIdx || 0) + 1) % ps.length;
+  }
+  function endTurnCycleIfComplete(){
+    if (!playersCount()) return;
+    if ((gameState.activeIdx || 0) === (gameState.roundStartIdx || 0)){
+      gameState.phase = "CALL";
+      gameState.pendingGuess = null;
+    }
+  }
 
-    // header fields
-    document.getElementById('inf-code').innerText = roomCode;
-    document.getElementById('inf-you').innerText = myName || '?';
+  /* START GAME */
+  function startGame(){
+    goTo("screen-game");
 
-    // show host call button only to host
-    document.getElementById('btn-host-call').style.display = isHost ? 'block' : 'none';
+    // set headers
+    document.getElementById("inf-code").textContent = roomCode;
+    document.getElementById("me-pill").textContent = `ME: ${myName || "?"}`;
 
-    // sync skin dropdown to actual selected skin (fix "always top option" issue)
-    syncSkinSelects();
-
-    // mini-grid 1–25
-    const mg = document.getElementById('mini-grid');
-    mg.innerHTML = '';
+    // build mini-grid
+    const mg = document.getElementById("mini-grid");
+    mg.innerHTML = "";
     for (let i=1;i<=25;i++){
-      const d = document.createElement('div');
-      d.className = 'trk-cell';
-      d.id = 'trk-' + i;
-      d.innerText = i;
+      const d = document.createElement("div");
+      d.className = "trk-cell";
+      d.id = "trk-" + i;
+      d.textContent = i;
       mg.appendChild(d);
     }
 
-    // main grid tiles (random per client — fine for this phase)
-    const grid = document.getElementById('tile-grid');
-    grid.innerHTML = '';
+    // build tiles (random per device – ok for this version)
+    const grid = document.getElementById("tile-grid");
+    grid.innerHTML = "";
     let nums = Array.from({length:25}, (_,i)=>i+1);
     for (let i=nums.length-1;i>0;i--){
       const j = Math.floor(Math.random()*(i+1));
       [nums[i], nums[j]] = [nums[j], nums[i]];
     }
     nums.forEach(n=>{
-      const t = document.createElement('div');
-      t.className = 'tile';
-      t.innerText = n;
+      const t = document.createElement("div");
+      t.className = "tile";
+      t.textContent = n;
       t.dataset.n = n;
       t.onclick = ()=>{
         const num = parseInt(t.dataset.n,10);
         if ((gameState.revealed || []).includes(num)){
-          t.classList.add('revealed');
+          t.classList.add("revealed");
         } else {
           alert("That number hasn't been called yet.");
         }
@@ -901,258 +909,111 @@
       grid.appendChild(t);
     });
 
-    // guess field enter submits
-    const gf = document.getElementById('guess-field');
-    gf.onkeydown = (e)=>{
-      if (e.key === 'Enter'){
-        e.preventDefault();
-        sendGuess();
-      }
-    };
-
-    // set image if known
-    if (gameImg) document.getElementById('target-img').src = gameImg;
-
-    // ensure guess UI starts idle
-    closeGuessUI();
+    if (gameImg) document.getElementById("target-img").src = gameImg;
 
     updateUI();
   }
 
-  /* [9] MESSAGE HANDLER --------------------------------------------------- */
-  function handleMsg(topic, payload){
-    let msg;
-    try { msg = JSON.parse(payload.toString()); }
-    catch { return; }
+  /* MESSAGES */
+  function handleMsg(topic, m){
+    const msg = JSON.parse(m.toString());
 
-    if (msg.type === 'STATE'){
+    if (msg.type === "STATE"){
       gameState = msg.state || gameState;
       if (msg.img) gameImg = msg.img;
 
-      // join flow: move to name screen once state arrives
-      if (document.getElementById('screen-join-code').classList.contains('active')){
-        document.getElementById('join-room-disp').innerText = 'ROOM: ' + roomCode;
-        document.getElementById('join-host-disp').innerText = 'HOST: ' + (gameState.host || '...');
-        document.getElementById('btn-enter').disabled = false;
-        document.getElementById('btn-search').innerText = 'NEXT';
-        goTo('screen-join-setup');
-        syncSkinSelects();
+      // join flow: move to name screen if we got a real host
+      if (document.getElementById("screen-join-code").classList.contains("active")){
+        document.getElementById("join-room-disp").textContent = "ROOM: " + roomCode;
+        document.getElementById("join-host-disp").textContent = "HOST: " + (gameState.host || "...");
+        document.getElementById("btn-enter").disabled = false;
+        document.getElementById("btn-search").textContent = "NEXT";
+        goTo("screen-join-setup");
       }
 
-      // if game UI is open, keep image updated
-      const ti = document.getElementById('target-img');
-      if (ti && gameImg) ti.src = gameImg;
+      // image update
+      if (gameImg) document.getElementById("target-img").src = gameImg;
 
       updateUI();
       return;
     }
 
-    if (msg.type === 'REQ_STATE' && isHost){
+    if (msg.type === "REQ_STATE" && isHost){
       sendState();
       return;
     }
 
-    if (msg.type === 'JOIN' && isHost){
-      const name = (msg.name || '').trim();
-      if (!name) return;
+    if (msg.type === "JOIN" && isHost){
+      const n = (msg.name || "").trim();
+      if (!n) return;
 
-      // host is NOT a player
-      if (name === gameState.host) return;
+      // prevent duplicates
+      if (!(gameState.players || []).some(p=>p.name === n)){
+        gameState.players.push({name:n});
 
-      const exists = (gameState.players || []).some(p=>p.name === name);
-      if (!exists){
-        gameState.players.push({name});
-        // if first player joining, make them active
-        if (gameState.players.length === 1){
-          gameState.activeIdx = 0;
-        }
+        // if first player joined, ensure activeIdx stays valid
+        gameState.activeIdx = clampIdx(gameState.activeIdx || 0);
+        gameState.roundStartIdx = clampIdx(gameState.roundStartIdx || 0);
+
         sendState();
       }
       return;
     }
 
-    if (msg.type === 'GUESS' && isHost){
-      handleIncomingGuessAsHost(msg);
-      return;
-    }
-
-    if (msg.type === 'PASS' && isHost){
-      // ignore passes from non-active
+    // HOST: accept PASS only from active player in TURNS
+    if (msg.type === "PASS" && isHost){
+      if (gameState.phase !== "TURNS") return;
       if (!isActivePlayer(msg.from)) return;
+      if (gameState.status === "WIN") return;
+
       advanceTurn();
+      endTurnCycleIfComplete();
+      if (gameState.phase !== "CALL") gameState.phase = "TURNS";
+
       sendState();
       return;
     }
-  }
 
-  /* [10] TURN HELPERS ----------------------------------------------------- */
-  function getActivePlayerName(){
-    const ps = gameState.players || [];
-    if (!ps.length) return '';
-    const idx = Math.max(0, Math.min(gameState.activeIdx || 0, ps.length - 1));
-    return ps[idx]?.name || '';
-  }
+    // HOST: accept GUESS only from active player in TURNS -> move to ADJUDICATE
+    if (msg.type === "GUESS" && isHost){
+      if (gameState.phase !== "TURNS") return;
+      if (!isActivePlayer(msg.from)) return;
+      if (gameState.status === "WIN") return;
 
-  function isActivePlayer(name){
-    return !!name && name === getActivePlayerName();
-  }
-
-  function advanceTurn(){
-    const ps = gameState.players || [];
-    if (!ps.length){ gameState.activeIdx = 0; return; }
-    gameState.activeIdx = ( (gameState.activeIdx || 0) + 1 ) % ps.length;
-  }
-
-  /* [11] UI UPDATE -------------------------------------------------------- */
-  function updateUI(){
-    // header
-    document.getElementById('inf-host').innerText = gameState.host || '?';
-    document.getElementById('inf-you').innerText  = myName || '?';
-    document.getElementById('cat-val').innerText  = gameState.cat || '?';
-
-    // status
-    const st = document.getElementById('inf-status');
-    if (gameState.status === 'WIN'){
-      st.innerText = `WIN: ${gameState.winner || '???'}`;
-    } else {
-      const ap = getActivePlayerName();
-      st.innerText = ap ? `TURN: ${ap}` : 'WAITING FOR PLAYERS';
+      gameState.pendingGuess = {from: msg.from, txt: msg.txt};
+      gameState.phase = "ADJUDICATE";
+      sendState();
+      return;
     }
 
-    // mini-grid + last call
-    let last = 0;
-    (gameState.revealed || []).forEach(n=>{
-      const el = document.getElementById('trk-' + n);
-      if (el) el.classList.add('active');
-      last = n;
-    });
+    // HOST: skip a player (from host UI)
+    if (msg.type === "SKIP" && isHost){
+      if (gameState.status === "WIN") return;
+      const who = msg.who;
 
-    // call box value + non-throbbing pop
-    const cv = document.getElementById('call-val');
-    if (cv){
-      const nextText = (last || '--').toString();
-      if (cv.innerText !== nextText){
-        cv.innerText = nextText;
-        cv.classList.remove('call-pop');
-        void cv.offsetWidth; // reflow
-        cv.classList.add('call-pop');
+      // if we're adjudicating, skipping is not allowed
+      if (gameState.phase === "ADJUDICATE") return;
+
+      // only meaningful during TURNS
+      if (gameState.phase !== "TURNS") return;
+
+      // if host skips the ACTIVE player, advance
+      if (who === getActivePlayerName()){
+        advanceTurn();
+        endTurnCycleIfComplete();
+        if (gameState.phase !== "CALL") gameState.phase = "TURNS";
+        sendState();
       }
-    }
-
-    // players list with active highlight
-    const pl = document.getElementById('list-players');
-    if (pl){
-      pl.innerHTML = '';
-      const active = getActivePlayerName();
-      (gameState.players || []).forEach(p=>{
-        const d = document.createElement('div');
-        d.className = 'sb-item' + (p.name === active ? ' active-turn' : '');
-        d.innerText = p.name;
-        pl.appendChild(d);
-      });
-    }
-
-    // wrong guesses list (filtered)
-    const lg = document.getElementById('list-guesses');
-    if (lg){
-      lg.innerHTML = '';
-      const all = gameState.guesses || [];
-      const view = isHost ? all : all.filter(g=>g.from === myName);
-      view.forEach(g=>{
-        const d = document.createElement('div');
-        d.className = 'sb-item';
-        d.innerText = isHost
-          ? `${g.from}: "${g.txt}" (${g.pct}%)`
-          : `"${g.txt}" (${g.pct}%)`;
-        lg.appendChild(d);
-      });
-    }
-
-    // enable/disable controls for active player only (players; host never guesses)
-    const myTurn = (!isHost) && isActivePlayer(myName) && (gameState.status !== 'WIN');
-    setControlsEnabled(myTurn);
-
-    // if not my turn, force guess UI closed (but never while typing on your turn)
-    if (!myTurn) closeGuessUI();
-
-    // win overlay
-    if (gameState.status === 'WIN'){
-      showWinOverlay();
-    } else {
-      hideWinOverlay();
+      return;
     }
   }
 
-  function setControlsEnabled(enabled){
-    const passBtn = document.getElementById('btn-pass');
-    const guessBtn = document.getElementById('btn-guess');
-    const gf = document.getElementById('guess-field');
-    const sendBtn = document.getElementById('btn-send');
-
-    [passBtn, guessBtn, gf, sendBtn].forEach(el=>{
-      if (!el) return;
-      if (enabled){
-        el.classList.remove('disabled');
-      } else {
-        el.classList.add('disabled');
-      }
-    });
-  }
-
-  /* [12] CONTROLS UX ------------------------------------------------------ */
-  function openGuess(){
-    // only if enabled (class gating)
-    const guessBtn = document.getElementById('btn-guess');
-    if (guessBtn.classList.contains('disabled')) return;
-
-    document.getElementById('row-guess-idle').style.display = 'none';
-    document.getElementById('row-guess-input').style.display = 'flex';
-    const gf = document.getElementById('guess-field');
-    gf.focus();
-  }
-
-  function closeGuessUI(){
-    document.getElementById('row-guess-input').style.display = 'none';
-    document.getElementById('row-guess-idle').style.display = 'flex';
-    const gf = document.getElementById('guess-field');
-    gf.value = '';
-  }
-
-  function passTurn(){
-    const passBtn = document.getElementById('btn-pass');
-    if (passBtn.classList.contains('disabled')) return;
-    if (gameState.status === 'WIN') return;
-
-    // player sends PASS to host; host advances & broadcasts
-    if (client && client.connected){
-      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'PASS', from: myName}));
-    }
-
-    // locally close guess UI
-    closeGuessUI();
-  }
-
-  function sendGuess(){
-    const sendBtn = document.getElementById('btn-send');
-    if (sendBtn.classList.contains('disabled')) return;
-    if (gameState.status === 'WIN') return;
-
-    const gf = document.getElementById('guess-field');
-    const g = (gf.value || '').trim();
-    if (!g) return;   // Q2: no min length requirement beyond non-empty
-
-    if (client && client.connected){
-      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'GUESS', from: myName, txt: g}));
-    }
-
-    // keep UI stable; close guess (PASS is always available but guess is done)
-    closeGuessUI();
-  }
-
-  /* [13] HOST CALL -------------------------------------------------------- */
+  /* HOST CALL */
   function hostCall(){
     if (!isHost) return;
-    if (gameState.status === 'WIN') return;
+    if (gameState.status === "WIN") return;
+    if (gameState.phase !== "CALL") return;
+    if (!playersCount()) return;
 
     const avail = [];
     for (let i=1;i<=25;i++){
@@ -1163,105 +1024,282 @@
     const pick = avail[Math.floor(Math.random()*avail.length)];
     gameState.revealed.push(pick);
 
-    // after host calls, turn advances (autoadvance pacing)
-    if ((gameState.players || []).length){
-      advanceTurn();
-    }
+    // start a full cycle
+    gameState.phase = "TURNS";
+    gameState.roundStartIdx = clampIdx(gameState.activeIdx || 0);
+    gameState.pendingGuess = null;
 
     sendState();
     updateUI();
   }
 
-  /* [14] FUZZY MATCHING (HOST) ------------------------------------------- */
-  function sanitizeText(s){
-    return (s||'').replace(/\s+/g,'').toUpperCase();
-  }
+  /* HOST JUDGE */
+  function hostJudge(isRight){
+    if (!isHost) return;
+    if (gameState.phase !== "ADJUDICATE") return;
+    if (!gameState.pendingGuess) return;
 
-  function levenshtein(a,b){
-    const m=a.length, n=b.length;
-    const dp=Array.from({length:m+1},()=>new Array(n+1).fill(0));
-    for(let i=0;i<=m;i++) dp[i][0]=i;
-    for(let j=0;j<=n;j++) dp[0][j]=j;
-    for(let i=1;i<=m;i++){
-      for(let j=1;j<=n;j++){
-        const cost = a[i-1]===b[j-1]?0:1;
-        dp[i][j]=Math.min(dp[i-1][j]+1, dp[i][j-1]+1, dp[i-1][j-1]+cost);
-      }
-    }
-    return dp[m][n];
-  }
+    const pg = gameState.pendingGuess;
 
-  function similarityPercent(guess, answer){
-    const g=sanitizeText(guess);
-    const a=sanitizeText(answer);
-    if(!g||!a) return 0;
-    const dist=levenshtein(g,a);
-    const maxLen=Math.max(g.length,a.length);
-    return Math.round((1 - dist/maxLen)*100);
-  }
-
-  function handleIncomingGuessAsHost(msg){
-    // only active player can guess
-    if (!isActivePlayer(msg.from)) return;
-
-    const pct = similarityPercent(msg.txt, gameState.ans);
-    const win = (pct >= 90);
-
-    if (win){
-      gameState.status  = 'WIN';
-      gameState.winner  = msg.from;
-      gameState.winGuess = msg.txt;
+    if (isRight){
+      gameState.status = "WIN";
+      gameState.phase  = "WIN";
+      gameState.winner = pg.from;
+      gameState.winGuess = pg.txt;
 
       // reveal full image
       gameState.revealed = Array.from({length:25}, (_,i)=>i+1);
 
-      // IMPORTANT: winning guess does NOT go in sidebar
+      // clear pending guess (and DO NOT add to wrong guesses list)
+      gameState.pendingGuess = null;
+
       sendState();
+      updateUI();
+      showWin(pg.from, pg.txt);
       return;
     }
 
-    // wrong guess gets recorded with pct
-    gameState.guesses.push({from: msg.from, txt: msg.txt, pct});
+    // WRONG
+    gameState.guesses.push({from: pg.from, txt: pg.txt});
+    gameState.pendingGuess = null;
 
-    // autoadvance after guess
+    // advance turn after adjudication
     advanceTurn();
+    endTurnCycleIfComplete();
+    if (gameState.phase !== "CALL") gameState.phase = "TURNS";
 
     sendState();
+    updateUI();
   }
 
-  /* [15] WIN OVERLAY ------------------------------------------------------ */
-  function showWinOverlay(){
-    const o = document.getElementById('win-overlay');
-    if (!o.classList.contains('show')){
-      o.classList.add('show');
-    }
-    const title = document.getElementById('win-title');
-    const sub   = document.getElementById('win-sub');
-    const img   = document.getElementById('win-img');
+  /* HOST SKIP (button in list) */
+  function hostSkip(name){
+    if (!isHost) return;
+    if (gameState.phase !== "TURNS") return;
+    if (gameState.status === "WIN") return;
+    if (!name) return;
 
-    title.innerText = `${gameState.winner || 'Someone'} wins!`;
-    sub.innerText   = `They guessed: ${gameState.ans || '???'}`;
+    if (client && client.connected){
+      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:"SKIP", who:name}));
+    }
+  }
+
+  /* PLAYER CONTROLS */
+  function openGuess(){
+    if (isHost) return;
+    if (gameState.phase !== "TURNS") return;
+    if (!isActivePlayer(myName)) return;
+    if (gameState.status === "WIN") return;
+
+    document.getElementById("row-guess-idle").style.display = "none";
+    document.getElementById("row-guess-input").style.display = "flex";
+    document.getElementById("guess-field").focus();
+  }
+  function closeGuessUI(){
+    document.getElementById("row-guess-input").style.display = "none";
+    document.getElementById("row-guess-idle").style.display = "flex";
+    const gf = document.getElementById("guess-field");
+    gf.value = "";
+  }
+
+  function passTurn(){
+    if (isHost) return;
+    if (gameState.phase !== "TURNS") return;
+    if (!isActivePlayer(myName)) return;
+    if (gameState.status === "WIN") return;
+
+    // PASS stays hot, and also effectively closes guess UI
+    closeGuessUI();
+
+    if (client && client.connected){
+      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:"PASS", from: myName}));
+    }
+  }
+
+  function sendGuess(){
+    if (isHost) return;
+    if (gameState.phase !== "TURNS") return;
+    if (!isActivePlayer(myName)) return;
+    if (gameState.status === "WIN") return;
+
+    const gf = document.getElementById("guess-field");
+    const g = (gf.value || "").trim();
+    if (!g) return;
+
+    // once sent, cannot undo
+    closeGuessUI();
+
+    if (client && client.connected){
+      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:"GUESS", from: myName, txt: g}));
+    }
+  }
+
+  /* STATE BROADCAST */
+  function sendState(){
+    if (client && client.connected && isHost){
+      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:"STATE", state: gameState, img: gameImg}));
+    }
+  }
+
+  /* UI */
+  function updateUI(){
+    document.getElementById("inf-host").textContent = gameState.host || "?";
+    document.getElementById("inf-cat").textContent  = gameState.cat  || "?";
+    document.getElementById("inf-phase").textContent = (gameState.phase || "?").toUpperCase();
+
+    // status rules:
+    // - ADJUDICATE => "NAME is being judged"
+    // - WIN => "NAME wins!"
+    // - otherwise => "It's NAME's turn" (when in turns) OR "Waiting for host"
+    const st = document.getElementById("inf-status");
+    if (gameState.status === "WIN" || gameState.phase === "WIN"){
+      st.textContent = `${gameState.winner || "???"} wins!`;
+    } else if (gameState.phase === "ADJUDICATE" && gameState.pendingGuess){
+      st.textContent = `${gameState.pendingGuess.from} is being judged`;
+    } else if (gameState.phase === "TURNS"){
+      const ap = getActivePlayerName();
+      st.textContent = ap ? `Turn: ${ap}` : "Turn: ?";
+    } else {
+      st.textContent = "WAITING";
+    }
+
+    // mini-grid + current call
+    let last = 0;
+    (gameState.revealed || []).forEach(n=>{
+      const el = document.getElementById("trk-" + n);
+      if (el) el.classList.add("active");
+      last = n;
+    });
+    const callText = document.getElementById("current-call-text");
+    callText.textContent = (last || "--");
+
+    // players list + active highlight + host skip buttons
+    const pl = document.getElementById("list-players");
+    if (pl){
+      pl.innerHTML = "";
+      const ap = getActivePlayerName();
+      (gameState.players || []).forEach(p=>{
+        const row = document.createElement("div");
+        row.className = "sb-item" + (p.name === ap ? " active-turn" : "");
+        const left = document.createElement("div");
+        left.textContent = p.name;
+
+        row.appendChild(left);
+
+        if (isHost){
+          const acts = document.createElement("div");
+          acts.className = "sb-actions";
+          const btn = document.createElement("button");
+          btn.className = "mini-btn danger";
+          btn.textContent = "SKIP";
+          btn.disabled = !(gameState.phase === "TURNS" && p.name === ap && gameState.status !== "WIN");
+          btn.onclick = ()=>hostSkip(p.name);
+          acts.appendChild(btn);
+          row.appendChild(acts);
+        }
+
+        pl.appendChild(row);
+      });
+    }
+
+    // wrong guesses list (everyone sees all wrong guesses; no %)
+    const lg = document.getElementById("list-guesses");
+    if (lg){
+      lg.innerHTML = "";
+      (gameState.guesses || []).forEach(g=>{
+        const d = document.createElement("div");
+        d.className = "sb-item";
+        d.textContent = `${g.from}: "${g.txt}"`;
+        lg.appendChild(d);
+      });
+    }
+
+    // lock tiles that have been called
+    document.querySelectorAll(".tile").forEach(t=>{
+      const n = parseInt(t.dataset.n,10);
+      if ((gameState.revealed || []).includes(n)) t.classList.add("revealed");
+    });
+
+    // controls gating
+    const myTurn = (!isHost)
+      && (gameState.phase === "TURNS")
+      && isActivePlayer(myName)
+      && (gameState.status !== "WIN");
+
+    // if not my turn, force close guess UI (no disappearing timers, just correctness)
+    if (!myTurn) closeGuessUI();
+
+    // show/hide host rows
+    document.getElementById("host-row-adj").style.display  = isHost ? "flex" : "none";
+    document.getElementById("host-row-adj2").style.display = isHost ? "flex" : "none";
+    document.getElementById("btn-host-call").style.display = isHost ? "block" : "none";
+
+    // show/hide player rows
+    document.getElementById("player-row-pass").style.display = isHost ? "none" : "flex";
+    document.getElementById("row-guess-idle").style.display  = isHost ? "none" : (document.getElementById("row-guess-input").style.display === "flex" ? "none" : "flex");
+    // row-guess-input is managed by open/close
+
+    // enable/disable player controls
+    const btnPass = document.getElementById("btn-pass");
+    const btnGuess = document.getElementById("btn-guess");
+    const btnSend = document.getElementById("btn-send");
+    if (btnPass) btnPass.disabled = !myTurn;
+    if (btnGuess) btnGuess.disabled = !myTurn;
+    if (btnSend) btnSend.disabled = !myTurn;
+
+    // host adjudication buttons enabled only when pendingGuess exists
+    const pending = !!gameState.pendingGuess && (gameState.phase === "ADJUDICATE") && (gameState.status !== "WIN");
+    document.getElementById("btn-right").disabled = !pending;
+    document.getElementById("btn-wrong").disabled = !pending;
+
+    // host call enabled only when phase CALL and not WIN and there are players
+    const canCall = isHost && (gameState.phase === "CALL") && (gameState.status !== "WIN") && playersCount() > 0;
+    document.getElementById("btn-host-call").disabled = !canCall;
+
+    // win overlay auto-show for non-host too (on state receipt)
+    if ((gameState.status === "WIN" || gameState.phase === "WIN") && gameState.winner){
+      showWin(gameState.winner, gameState.winGuess || "");
+    }
+  }
+
+  /* WIN OVERLAY */
+  function showWin(name, guess){
+    const ov = document.getElementById("win-overlay");
+    const title = document.getElementById("win-title");
+    const sub = document.getElementById("win-sub");
+    const img = document.getElementById("win-img");
+
+    title.textContent = `${name} wins!`;
+    sub.textContent = `They Guessed: ${guess || "(unknown)"}`;
 
     if (gameImg) img.src = gameImg;
+    ov.style.display = "flex";
+  }
+  function hideWin(){
+    document.getElementById("win-overlay").style.display = "none";
   }
 
-  function hideWinOverlay(){
-    const o = document.getElementById('win-overlay');
-    o.classList.remove('show');
-  }
-
-  /* [16] SMALL UTILS ------------------------------------------------------ */
+  /* UTIL */
   function copyCode(){
     if (!roomCode) return;
     navigator.clipboard.writeText(roomCode);
-    alert('Room code copied: ' + roomCode);
+    showToast("Room code copied: " + roomCode, 1500);
+  }
+  function showToast(txt, ms=2000){
+    const t = document.getElementById("toast");
+    t.textContent = txt;
+    t.classList.add("show");
+    setTimeout(()=>t.classList.remove("show"), ms);
   }
 
-  // keep selects synced on load
-  window.addEventListener('load', ()=>{
-    syncSkinSelects();
-  });
+  /* INIT */
+  (function init(){
+    // populate skin selects
+    populateSkinSelect("host-style");
+    populateSkinSelect("join-style");
+    populateSkinSelect("style-in-game");
+    setMySkin(mySkinKey);
+  })();
 </script>
-
 </body>
 </html>
