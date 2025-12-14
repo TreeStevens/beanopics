@@ -1,25 +1,29 @@
 <!DOCTYPE html>
 <html lang="en">
 <!--
-REVEAL! v4.9.1
-(Host adjudicates + turn gating + host answer reminder)
+REVEAL! v4.9.2
+(Host adjudicates + Sidebar Mini-Cards + Visual Timer)
 
-CHANGES IN THIS VERSION (v4.9.1)
-#0 STRUCTURAL: Complete file refactor into numbered sections per protocol.
-#0 No functional gameplay changes.
+CHANGES IN THIS VERSION (v4.9.2)
+#5 CSS: Added styles for .mini-deck (sidebar grids) and #timer-display.
+#10 HTML: Replaced Category strip with Timer Display area (placeholder).
+#16 LOGIC: Switched to Seeded RNG (mulberry32) for grid generation.
+    * This allows clients to accurately render opponents' mini-grids locally.
+#20 JS: updateUI now generates and renders 5x5 mini-patterns for all players.
+#20 JS: Removed "ME" pill; added (YOU) indicator to sidebar.
 
 TEST CHECKLIST:
-1. Host can create game; Players can join.
-2. Host CALL button works.
-3. Players can Reveal/Guess/Pass.
-4. Adjudication flow (Guess -> Wrong/Right) works.
-5. Win overlay appears correctly.
+1. Players see their own card normally.
+2. Sidebar shows mini 5x5 grids for every player.
+3. Mini-grids match the actual revealed patterns of those players.
+4. "YOU" is clearly marked in the player list.
+5. Timer (static 2:00) appears above the board.
 -->
 
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
-<title>REVEAL! v4.9.1</title>
+<title>REVEAL! v4.9.2</title>
 
 <!--
 ========================================
@@ -128,7 +132,7 @@ input,select{
 
 /*
 ========================================
-#5 GAME SCREEN LAYOUT
+#5 GAME SCREEN LAYOUT & SIDEBAR
 ========================================
 */
 #screen-game{
@@ -139,7 +143,7 @@ input,select{
 }
 #game-layout{
   display:grid;
-  grid-template-columns: 220px 1fr 220px;
+  grid-template-columns: 240px 1fr 240px; /* Slightly wider sidebars for mini-cards */
   overflow:hidden;
 }
 
@@ -162,13 +166,43 @@ input,select{
   word-break:break-word;
   display:flex; align-items:center; justify-content:space-between;
   gap:10px;
+  position:relative;
 }
 .sb-item.active-turn{
-  background:rgba(255,255,255,.18);
-  border-left:4px solid var(--accent);
-  padding-left:6px;
+  background:rgba(255,255,255,.12);
+  border-radius:6px;
+  /* Visual flair for active turn */
+  box-shadow:inset 3px 0 0 var(--accent);
 }
 .sb-actions{display:flex; gap:6px; flex:0 0 auto;}
+
+/* MINI DECK (Sidebar) */
+.player-row-content{
+  display:flex; align-items:center; gap:10px; flex:1;
+}
+.mini-deck{
+  display:grid;
+  grid-template-columns:repeat(5, 1fr);
+  grid-template-rows:repeat(5, 1fr);
+  width:40px; height:40px;
+  background:#000;
+  border:1px solid rgba(255,255,255,.3);
+  gap:1px;
+}
+.md-tile{
+  background:rgba(255,255,255,.15);
+  width:100%; height:100%;
+}
+.md-tile.hit{
+  background:var(--accent);
+  box-shadow:0 0 2px var(--accent);
+}
+
+.you-badge{
+  font-size:.65rem; background:rgba(255,255,255,.2);
+  padding:2px 6px; border-radius:4px; margin-left:6px;
+  text-transform:uppercase; font-weight:900; opacity:.8;
+}
 
 /* Center Stage */
 #center-stage{
@@ -180,6 +214,23 @@ input,select{
 .game-stack{
   width:100%; max-width:var(--card-max-width);
   display:flex; flex-direction:column; gap:8px;
+}
+
+/* TIMER DISPLAY */
+#timer-display{
+  text-align:center;
+  background:rgba(0,0,0,.5);
+  border-radius:8px;
+  padding:8px;
+  border:1px solid rgba(255,255,255,.1);
+}
+#timer-val{
+  font-family:var(--font-head);
+  font-size:1.8rem;
+  line-height:1;
+}
+#timer-lbl{
+  font-size:.65rem; text-transform:uppercase; opacity:.7; font-weight:900;
 }
 
 @media (max-width: 900px){
@@ -226,23 +277,6 @@ input,select{
 }
 #host-answer-line .lbl{opacity:.7; text-transform:uppercase; letter-spacing:.5px; margin-right:6px;}
 #host-answer-line .val{color:var(--accent); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:inline-block; max-width:100%; vertical-align:bottom;}
-
-/* Category Strip */
-#cat-strip{
-  background:rgba(0,0,0,.35);
-  border:1px solid rgba(255,255,255,.12);
-  border-radius:10px; padding:10px 12px;
-  display:flex; align-items:center; justify-content:space-between; gap:10px;
-}
-#cat-strip .left{display:flex; flex-direction:column; align-items:flex-start; gap:2px; min-width:0;}
-#cat-strip .lbl{font-size:.6rem; opacity:.75; font-weight:900; text-transform:uppercase;}
-#cat-strip .val{font-size:1rem; font-weight:900; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-#cat-strip .me{
-  font-size:.8rem; font-weight:900; opacity:.9;
-  background:rgba(255,255,255,.12);
-  padding:6px 10px; border-radius:999px;
-  white-space:nowrap;
-}
 
 /* Jumbotron */
 #jumbotron{display:grid; grid-template-columns:1fr 1fr; gap:8px; width:100%;}
@@ -410,7 +444,7 @@ input,select{
 <!-- LOBBY -->
 <div id="screen-lobby" class="screen active">
   <div class="card-panel">
-    <h1>REVEAL! v4.9.1</h1>
+    <h1>REVEAL! v4.9.2</h1>
     <div style="display:flex; flex-direction:column; gap:10px; margin-top:16px;">
       <button class="big-btn" onclick="showHostSetup()">HOST GAME</button>
       <div style="opacity:.55; margin:4px 0;">OR</div>
@@ -493,7 +527,7 @@ input,select{
 <div id="screen-game" class="screen">
   <div id="game-layout">
     
-    <!-- LEFT SIDEBAR: PLAYERS -->
+    <!-- LEFT SIDEBAR: PLAYERS + MINI DECKS -->
     <div class="sidebar" id="sb-players">
       <div class="sb-head">PLAYERS</div>
       <div id="list-players"></div>
@@ -535,12 +569,10 @@ input,select{
           </div>
         </div>
 
-        <div id="cat-strip">
-          <div class="left">
-            <div class="lbl">CATEGORY</div>
-            <div class="val" id="inf-cat">?</div>
-          </div>
-          <div class="me" id="me-pill">ME: ?</div>
+        <!-- Timer Display (Replaces Category Strip) -->
+        <div id="timer-display">
+          <div id="timer-val">2:00</div>
+          <div id="timer-lbl">Turn Timer</div>
         </div>
 
         <!-- Jumbotron -->
@@ -857,9 +889,43 @@ function sendState(){
 
 /*
 ========================================
-#16 CORE LOGIC: SETUP/JOIN
+#16 CORE LOGIC: SETUP/JOIN & RNG
 ========================================
 */
+/* SEEDED RANDOM: Essential for syncing mini-cards without syncing full state */
+function mulberry32(a) {
+  return function() {
+    var t = a += 0x6D2B79F5;
+    t = Math.imul(t ^ t >>> 15, t | 1);
+    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  }
+}
+function stringToSeed(str) {
+  let h = 1779033703 ^ str.length;
+  for(let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = h << 13 | h >>> 19;
+  }
+  return function() {
+    h = Math.imul(h ^ (h >>> 16), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    return (h ^= h >>> 16) >>> 0;
+  }
+}
+function generateGridFor(playerName) {
+  // Same seed = Same grid every time
+  const seedFn = stringToSeed(roomCode + "_" + playerName);
+  const randFn = mulberry32(seedFn());
+  
+  let nums = Array.from({length:25}, (_,i)=>i+1);
+  for (let i=nums.length-1;i>0;i--){
+    const j = Math.floor(randFn()*(i+1));
+    [nums[i], nums[j]] = [nums[j], nums[i]];
+  }
+  return nums;
+}
+
 function createGame(){
   myName = (document.getElementById("host-name").value || "").trim() || "Host";
   gameState.host = myName;
@@ -910,7 +976,8 @@ function enterGame(){
 function startGame(){
   goTo("screen-game");
   document.getElementById("inf-code").textContent = roomCode;
-  document.getElementById("me-pill").textContent = `ME: ${myName || "?"}`;
+  
+  // NOTE: "ME" pill removed in favor of sidebar badge.
 
   const mg = document.getElementById("mini-grid");
   mg.innerHTML = "";
@@ -922,13 +989,11 @@ function startGame(){
     mg.appendChild(d);
   }
 
+  // Use Seeded RNG for MY card too (so host can mirror it later if we want)
+  const nums = generateGridFor(myName);
   const grid = document.getElementById("tile-grid");
   grid.innerHTML = "";
-  let nums = Array.from({length:25}, (_,i)=>i+1);
-  for (let i=nums.length-1;i>0;i--){
-    const j = Math.floor(Math.random()*(i+1));
-    [nums[i], nums[j]] = [nums[j], nums[i]];
-  }
+  
   nums.forEach(n=>{
     const t = document.createElement("div");
     t.className = "tile";
@@ -1107,7 +1172,6 @@ function sendGuess(){
 */
 function updateUI(){
   document.getElementById("inf-host").textContent = gameState.host || "?";
-  document.getElementById("inf-cat").textContent = gameState.cat || "?";
   document.getElementById("inf-phase").textContent = (gameState.phase || "?").toUpperCase();
 
   const st = document.getElementById("inf-status");
@@ -1143,14 +1207,15 @@ function updateUI(){
 
   /* Called Numbers */
   let last = 0;
-  (gameState.revealed || []).forEach(n=>{
+  const rev = gameState.revealed || [];
+  rev.forEach(n=>{
     const el = document.getElementById("trk-" + n);
     if (el) el.classList.add("active");
     last = n;
   });
   document.getElementById("current-call-text").textContent = (last || "--");
 
-  /* Players List */
+  /* Players List + Mini Cards */
   const pl = document.getElementById("list-players");
   if (pl){
     pl.innerHTML = "";
@@ -1158,10 +1223,36 @@ function updateUI(){
     (gameState.players || []).forEach(p=>{
       const row = document.createElement("div");
       row.className = "sb-item" + (p.name === ap ? " active-turn" : "");
-      const left = document.createElement("div");
-      left.textContent = p.name;
-      row.appendChild(left);
+      
+      const content = document.createElement("div");
+      content.className = "player-row-content";
 
+      // MINI GRID
+      const deck = document.createElement("div");
+      deck.className = "mini-deck";
+      // Calc their grid
+      const pGrid = generateGridFor(p.name);
+      pGrid.forEach(n => {
+        const t = document.createElement("div");
+        t.className = "md-tile" + (rev.includes(n) ? " hit" : "");
+        deck.appendChild(t);
+      });
+      content.appendChild(deck);
+
+      // NAME + BADGE
+      const nameDiv = document.createElement("div");
+      nameDiv.textContent = p.name;
+      if (p.name === myName) {
+        const meBadge = document.createElement("span");
+        meBadge.className = "you-badge";
+        meBadge.textContent = "YOU";
+        nameDiv.appendChild(meBadge);
+      }
+      content.appendChild(nameDiv);
+      
+      row.appendChild(content);
+
+      // ACTIONS
       if (isHost){
         const acts = document.createElement("div");
         acts.className = "sb-actions";
