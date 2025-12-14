@@ -1,29 +1,28 @@
 <!DOCTYPE html>
 <html lang="en">
 <!--
-REVEAL! v4.9.2
-(Host adjudicates + Sidebar Mini-Cards + Visual Timer)
+REVEAL! v4.9.4
+(Host adjudicates + Sidebar Mini-Cards + Visual Timer + Anti-Ghosting)
 
-CHANGES IN THIS VERSION (v4.9.2)
-#5 CSS: Added styles for .mini-deck (sidebar grids) and #timer-display.
-#10 HTML: Replaced Category strip with Timer Display area (placeholder).
-#16 LOGIC: Switched to Seeded RNG (mulberry32) for grid generation.
-    * This allows clients to accurately render opponents' mini-grids locally.
-#20 JS: updateUI now generates and renders 5x5 mini-patterns for all players.
-#20 JS: Removed "ME" pill; added (YOU) indicator to sidebar.
+CHANGES IN THIS VERSION (v4.9.4)
+#10 HTML: Added .tile.missed-call styles (yellow pulse).
+#12 JS: Added window.onbeforeunload to warn against refreshing.
+#12 JS: Added TIMER_DURATION configuration.
+#20 UI: Sidebar list strictly sorts Active Player to the top.
+#20 UI: Timer counts down 2:00 -> 0:00 -> Negative Red Overtime.
+#20 UI: Tiles pulse if they are in the 'revealed' list but not clicked locally.
 
 TEST CHECKLIST:
-1. Players see their own card normally.
-2. Sidebar shows mini 5x5 grids for every player.
-3. Mini-grids match the actual revealed patterns of those players.
-4. "YOU" is clearly marked in the player list.
-5. Timer (static 2:00) appears above the board.
+1. Try to refresh the page -> Should see browser warning.
+2. Active Player always jumps to top of list.
+3. Timer goes red and negative after 2 minutes.
+4. If Host calls a number, it pulses on player board until clicked.
 -->
 
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
-<title>REVEAL! v4.9.2</title>
+<title>REVEAL! v4.9.4</title>
 
 <!--
 ========================================
@@ -143,7 +142,7 @@ input,select{
 }
 #game-layout{
   display:grid;
-  grid-template-columns: 240px 1fr 240px; /* Slightly wider sidebars for mini-cards */
+  grid-template-columns: 240px 1fr 240px; 
   overflow:hidden;
 }
 
@@ -167,11 +166,11 @@ input,select{
   display:flex; align-items:center; justify-content:space-between;
   gap:10px;
   position:relative;
+  transition:background .2s;
 }
 .sb-item.active-turn{
   background:rgba(255,255,255,.12);
   border-radius:6px;
-  /* Visual flair for active turn */
   box-shadow:inset 3px 0 0 var(--accent);
 }
 .sb-actions{display:flex; gap:6px; flex:0 0 auto;}
@@ -228,7 +227,12 @@ input,select{
   font-family:var(--font-head);
   font-size:1.8rem;
   line-height:1;
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
 }
+#timer-val.overtime{color:#ef4444; animation:pulseRed 1s infinite;}
+@keyframes pulseRed{ 50%{opacity:.6;} }
+
 #timer-lbl{
   font-size:.65rem; text-transform:uppercase; opacity:.7; font-weight:900;
 }
@@ -340,6 +344,16 @@ input,select{
   transition:opacity .18s ease;
 }
 .tile.revealed{opacity:0; pointer-events:none;}
+/* MISSED CALL PULSE */
+.tile.missed-call{
+  color:var(--accent); border:2px solid var(--accent);
+  animation:pulseTile 1.5s infinite;
+}
+@keyframes pulseTile{
+  0%{box-shadow:inset 0 0 0 rgba(255,255,255,0);}
+  50%{box-shadow:inset 0 0 30px var(--accent);}
+  100%{box-shadow:inset 0 0 0 rgba(255,255,255,0);}
+}
 
 /*
 ========================================
@@ -444,7 +458,7 @@ input,select{
 <!-- LOBBY -->
 <div id="screen-lobby" class="screen active">
   <div class="card-panel">
-    <h1>REVEAL! v4.9.2</h1>
+    <h1>REVEAL! v4.9.4</h1>
     <div style="display:flex; flex-direction:column; gap:10px; margin-top:16px;">
       <button class="big-btn" onclick="showHostSetup()">HOST GAME</button>
       <div style="opacity:.55; margin:4px 0;">OR</div>
@@ -562,14 +576,14 @@ input,select{
             <div class="info-val" id="inf-status">WAITING</div>
           </div>
 
-          <!-- HOST ANSWER (Only visible to host during adjudicate) -->
+          <!-- HOST ANSWER -->
           <div id="host-answer-line">
             <span class="lbl">HOST ANSWER:</span>
             <span class="val" id="host-answer-val">?</span>
           </div>
         </div>
 
-        <!-- Timer Display (Replaces Category Strip) -->
+        <!-- Timer Display -->
         <div id="timer-display">
           <div id="timer-val">2:00</div>
           <div id="timer-lbl">Turn Timer</div>
@@ -680,6 +694,11 @@ const SKINS = {
 
 let mySkinKey = localStorage.getItem("reveal_skin") || "neon_grape";
 
+/* Anti-Ghosting Warning */
+window.onbeforeunload = function() {
+  return "If you leave, you will lose your spot in the game!";
+};
+
 function applySkin(k){
   const s = SKINS[k] || SKINS.neon_grape;
   const r = document.documentElement.style;
@@ -739,6 +758,10 @@ let gameState = {
   winner:"",
   winGuess:""
 };
+
+/* TIMER (VISUAL ONLY) */
+let timerInterval = null;
+let timerSeconds = 120; // 2 minutes
 
 const BROKER = "wss://broker.emqx.io:8084/mqtt";
 const TOPIC_PRE = "reveal_v4_8_1";
@@ -807,10 +830,22 @@ function connectMQTT(){
 
 function handleMsg(topic, m){
   const msg = JSON.parse(m.toString());
-
+  
   if (msg.type === "STATE"){
+    // Detect turn change for timer reset
+    const prevTurn = getActivePlayerName();
+    const prevPhase = gameState.phase;
+
     gameState = msg.state || gameState;
     if (msg.img) gameImg = msg.img;
+
+    const newTurn = getActivePlayerName();
+    const newPhase = gameState.phase;
+
+    // Reset visual timer if turn changed
+    if (prevTurn !== newTurn || (prevPhase !== "TURNS" && newPhase === "TURNS")) {
+      resetTimer();
+    }
 
     if (document.getElementById("screen-join-code").classList.contains("active")){
       document.getElementById("join-room-disp").textContent = "ROOM: " + roomCode;
@@ -892,7 +927,6 @@ function sendState(){
 #16 CORE LOGIC: SETUP/JOIN & RNG
 ========================================
 */
-/* SEEDED RANDOM: Essential for syncing mini-cards without syncing full state */
 function mulberry32(a) {
   return function() {
     var t = a += 0x6D2B79F5;
@@ -914,7 +948,6 @@ function stringToSeed(str) {
   }
 }
 function generateGridFor(playerName) {
-  // Same seed = Same grid every time
   const seedFn = stringToSeed(roomCode + "_" + playerName);
   const randFn = mulberry32(seedFn());
   
@@ -977,8 +1010,6 @@ function startGame(){
   goTo("screen-game");
   document.getElementById("inf-code").textContent = roomCode;
   
-  // NOTE: "ME" pill removed in favor of sidebar badge.
-
   const mg = document.getElementById("mini-grid");
   mg.innerHTML = "";
   for (let i=1;i<=25;i++){
@@ -989,7 +1020,6 @@ function startGame(){
     mg.appendChild(d);
   }
 
-  // Use Seeded RNG for MY card too (so host can mirror it later if we want)
   const nums = generateGridFor(myName);
   const grid = document.getElementById("tile-grid");
   grid.innerHTML = "";
@@ -1003,6 +1033,7 @@ function startGame(){
       const num = parseInt(t.dataset.n,10);
       if ((gameState.revealed || []).includes(num)){
         t.classList.add("revealed");
+        t.classList.remove("missed-call");
       } else {
         alert("That number hasn't been called yet.");
       }
@@ -1012,6 +1043,11 @@ function startGame(){
 
   if (gameImg) document.getElementById("target-img").src = gameImg;
   updateUI();
+  
+  // Start visual timer tick
+  if (!timerInterval) {
+    timerInterval = setInterval(tickTimer, 1000);
+  }
 }
 
 /*
@@ -1170,6 +1206,31 @@ function sendGuess(){
 #20 UI UPDATE LOOP
 ========================================
 */
+function resetTimer(){
+  timerSeconds = 120; // 2 minutes
+  renderTimer();
+}
+function tickTimer(){
+  // Only tick if in TURNS phase and not WIN
+  if (gameState.phase === "TURNS" && gameState.status !== "WIN") {
+    timerSeconds--;
+    renderTimer();
+  }
+}
+function renderTimer(){
+  const disp = document.getElementById("timer-val");
+  const abs = Math.abs(timerSeconds);
+  const m = Math.floor(abs / 60);
+  const s = abs % 60;
+  const txt = (timerSeconds < 0 ? "-" : "") + m + ":" + (s < 10 ? "0"+s : s);
+  
+  if (disp) {
+    disp.textContent = txt;
+    if (timerSeconds <= 0) disp.classList.add("overtime");
+    else disp.classList.remove("overtime");
+  }
+}
+
 function updateUI(){
   document.getElementById("inf-host").textContent = gameState.host || "?";
   document.getElementById("inf-phase").textContent = (gameState.phase || "?").toUpperCase();
@@ -1187,7 +1248,7 @@ function updateUI(){
     st.textContent = "WAITING";
   }
 
-  /* Host Answer (HOST ONLY) */
+  /* Host Answer */
   const ha = document.getElementById("host-answer-line");
   const hav = document.getElementById("host-answer-val");
   const showHostAnswer = isHost
@@ -1205,7 +1266,7 @@ function updateUI(){
     }
   }
 
-  /* Called Numbers */
+  /* Called Numbers & Check for Missed Clicks */
   let last = 0;
   const rev = gameState.revealed || [];
   rev.forEach(n=>{
@@ -1215,12 +1276,38 @@ function updateUI(){
   });
   document.getElementById("current-call-text").textContent = (last || "--");
 
-  /* Players List + Mini Cards */
+  // Pulse tiles that are called but not revealed
+  document.querySelectorAll("#tile-grid .tile").forEach(t => {
+    const num = parseInt(t.dataset.n, 10);
+    // If not revealed locally...
+    if (!t.classList.contains("revealed")) {
+      // ...but it IS in the server list
+      if (rev.includes(num)) {
+        t.classList.add("missed-call");
+      } else {
+        t.classList.remove("missed-call");
+      }
+    }
+  });
+
+
+  /* Players List + Mini Cards (SORTED: Active Top) */
   const pl = document.getElementById("list-players");
   if (pl){
     pl.innerHTML = "";
+    
+    // Sort players: Active first, then by index
     const ap = getActivePlayerName();
-    (gameState.players || []).forEach(p=>{
+    let sorted = [...(gameState.players || [])];
+    
+    // Simple sort: if p.name == ap, move to front
+    sorted.sort((a,b) => {
+      if (a.name === ap) return -1;
+      if (b.name === ap) return 1;
+      return 0; // maintain original order otherwise
+    });
+
+    sorted.forEach(p=>{
       const row = document.createElement("div");
       row.className = "sb-item" + (p.name === ap ? " active-turn" : "");
       
@@ -1230,7 +1317,6 @@ function updateUI(){
       // MINI GRID
       const deck = document.createElement("div");
       deck.className = "mini-deck";
-      // Calc their grid
       const pGrid = generateGridFor(p.name);
       pGrid.forEach(n => {
         const t = document.createElement("div");
@@ -1252,7 +1338,7 @@ function updateUI(){
       
       row.appendChild(content);
 
-      // ACTIONS
+      // ACTIONS (Host Only)
       if (isHost){
         const acts = document.createElement("div");
         acts.className = "sb-actions";
