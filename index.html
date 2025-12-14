@@ -1,35 +1,32 @@
 <!DOCTYPE html>
 <html lang="en">
 <!--
-  REVEAL! v4.7.1 — Turn enforcement + win overlay + per-player % + skin fixes
+  REVEAL! v4.8 — Stabilized Jumbotron + Turn + Guess UX (no 23)
 
-  FIXES IN THIS BUILD
+  FIXES IN THIS VERSION
+  - Jumbotron panels are always SQUARE (no rectangles).
+  - Removed ALL “23 / pyramid” behavior.
+  - Current Call no longer “throbs” from frequent STATE updates (only animates once per new call).
   - Host is NOT added as a player.
-  - Only ACTIVE player sees GUESS/PASS.
-  - Turn auto-advances after PASS or after any (wrong) GUESS.
-  - Guess box no longer vanishes / no typed text loss (UI won’t stomp the pane while typing).
-  - Wrong guesses list shows %:
-      • Players see ONLY their own guesses (+%)
-      • Host sees ALL guesses (+%)
-      • Correct guess is NOT added to the sidebar.
-  - Win screen overlay:
-      NAME wins!
-      They guessed: ANSWER
-      Revealed picture
-      60% opaque backdrop + fireworks
-      Stays until click.
-  - Skin dropdown reflects the user’s chosen skin (and keeps the cool names).
-  - Category moved right above the main card.
-  - Jumbotron proportions kept (two equal panels).
-  - Current call anim + 23 pyramid easter egg restored.
+  - Turn system (basic): only active player sees GUESS/PASS; pass/guess auto-advances turn.
+  - Wrong guesses:
+      * Host sees all guesses + %.
+      * Each player only sees THEIR own guesses + %.
+      * Correct guess never appears in sidebar.
+  - Guess input no longer vanishes/clears unexpectedly; it stays until SEND or X.
+  - Style dropdown reflects the currently selected style (and names restored: Dark Academia, Art Deco, etc.)
+  - Win screen overlay: NAME wins! / They Guessed / Revealed picture + fireworks + 60% backdrop.
+
+  NOTES
+  - Turn order = join order (first player to JOIN becomes first turn).
+  - Host can CALL at any time (not tied to turns).
 -->
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>REVEAL! v4.7.1</title>
-
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
+  <title>REVEAL! v4.8</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
 
   <style>
     :root{
@@ -45,194 +42,228 @@
 
     *{ box-sizing:border-box; }
     body{
-      margin:0; padding:0; height:100vh; width:100vw;
+      margin:0; height:100vh; width:100vw;
       background:var(--bg-color); color:var(--text-main);
       font-family:var(--font-body);
-      display:flex; flex-direction:column; overflow:hidden;
-      transition:background .25s ease;
+      overflow:hidden;
     }
 
-    /* SCREENS */
+    /* Screens */
     .screen{
       position:absolute; inset:0;
       display:flex; flex-direction:column; align-items:center; justify-content:center;
-      background:var(--bg-color); z-index:10;
-      transition:transform .3s ease;
+      background:var(--bg-color);
       transform:translateX(100%);
+      transition:transform .25s ease;
+      z-index:10;
     }
     .screen.active{ transform:translateX(0); z-index:20; }
 
     .card-panel{
+      width:90%; max-width:420px;
+      padding:24px;
+      border-radius:20px;
       background:rgba(255,255,255,0.10);
-      backdrop-filter: blur(10px);
-      padding:25px; border-radius:20px; width:90%; max-width:420px;
-      border:2px solid rgba(255,255,255,0.18);
+      border:2px solid rgba(255,255,255,0.20);
+      box-shadow:0 10px 30px rgba(0,0,0,0.35);
       text-align:center;
-      box-shadow:0 10px 30px rgba(0,0,0,0.3);
+      backdrop-filter: blur(10px);
     }
 
-    .control-group{ margin-bottom:15px; text-align:left; width:100%; }
+    .control-group{ margin-bottom:14px; text-align:left; }
     label{
-      display:block; font-weight:900; margin-bottom:5px; font-size:.8rem;
-      text-transform:uppercase; opacity:.85;
-    }
-    input, select{
-      width:100%; padding:12px; border-radius:10px; border:none;
-      font-family:var(--font-body); font-weight:800; font-size:1.05rem;
-      background:#f8fafc; color:#0f172a; outline:none;
-    }
-    .code-input{
-      font-family:'Courier New', monospace;
-      letter-spacing:5px; text-align:center; font-size:1.5rem;
+      display:block;
+      font-weight:900;
+      font-size:.78rem;
+      opacity:.75;
       text-transform:uppercase;
+      margin-bottom:6px;
+      letter-spacing:.5px;
+    }
+
+    input, select{
+      width:100%;
+      padding:12px;
+      border-radius:10px;
+      border:none;
+      outline:none;
+      font-family:var(--font-body);
+      font-weight:900;
+      font-size:1.05rem;
+      background:#f8fafc;
+      color:#0f172a;
+    }
+
+    .code-input{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
+      letter-spacing:6px;
+      text-transform:uppercase;
+      text-align:center;
+      font-size:1.4rem;
     }
 
     .big-btn{
-      width:100%; padding:15px; border-radius:12px; border:none;
-      font-family:var(--font-head); font-size:1.2rem; cursor:pointer;
-      background:var(--accent); color:#000;
-      box-shadow:0 5px 0 rgba(0,0,0,0.2);
-      margin-top:5px;
-      transition:transform .1s;
+      width:100%;
+      border:none;
+      border-radius:12px;
+      padding:14px;
+      font-family:var(--font-head);
+      font-size:1.15rem;
+      cursor:pointer;
+      background:var(--accent);
+      color:#000;
+      box-shadow:0 5px 0 rgba(0,0,0,0.25);
+      transition:transform .08s;
+      margin-top:6px;
     }
     .big-btn:active{ transform:translateY(2px); box-shadow:none; }
-    .big-btn:disabled{ background:#64748b; cursor:not-allowed; box-shadow:none; opacity:.75; }
-    .big-btn.secondary{ background:rgba(255,255,255,0.2); color:#fff; }
+    .big-btn.secondary{
+      background:rgba(255,255,255,0.18);
+      color:#fff;
+      box-shadow:0 5px 0 rgba(0,0,0,0.18);
+    }
+    .big-btn:disabled{
+      opacity:.6;
+      cursor:not-allowed;
+      box-shadow:none;
+    }
 
-    /* GAME LAYOUT */
+    /* Game layout */
     #screen-game{
       display:grid;
       grid-template-rows: 1fr 60px;
-      height:100%; width:100%;
-      padding:0;
-      background:var(--bg-color);
+      height:100%;
+      width:100%;
     }
     #game-layout{
       display:grid;
-      grid-template-columns:200px 1fr 200px;
+      grid-template-columns: 200px 1fr 200px;
       overflow:hidden;
+      height:100%;
     }
+
     .sidebar{
       background:var(--panel-bg);
-      border-left:1px solid rgba(255,255,255,0.05);
-      border-right:1px solid rgba(255,255,255,0.05);
-      display:flex; flex-direction:column;
+      border-left:1px solid rgba(255,255,255,0.06);
+      border-right:1px solid rgba(255,255,255,0.06);
       padding:10px;
       overflow-y:auto;
     }
     .sb-head{
       font-family:var(--font-head);
       text-align:center;
+      font-size:.9rem;
       opacity:.6;
       margin-bottom:10px;
-      font-size:.9rem;
     }
     .sb-item{
-      font-size:.85rem;
       padding:8px;
-      border-bottom:1px solid rgba(255,255,255,0.05);
+      font-size:.85rem;
+      border-bottom:1px solid rgba(255,255,255,0.06);
       word-break:break-word;
     }
     .sb-item.active-turn{
-      background:rgba(255,255,255,0.18);
+      background:rgba(255,255,255,0.16);
       border-left:4px solid var(--accent);
+      padding-left:6px;
     }
 
     #center-stage{
-      display:flex; flex-direction:column;
       padding:10px;
       overflow-y:auto;
+      display:flex;
+      justify-content:flex-start;
       align-items:center;
+      flex-direction:column;
     }
 
     .game-stack{
       width:100%;
       max-width:var(--card-max-width);
-      display:flex; flex-direction:column;
-      gap:8px;
-    }
-
-    /* HEADER */
-    #header-row{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:4px;
-      background:var(--panel-bg);
-      padding:6px 5px 5px;
-      border-radius:6px;
-    }
-    .info-cell{ text-align:center; overflow:hidden; }
-    .info-lbl{ font-size:.5rem; opacity:.6; font-weight:900; text-transform:uppercase; }
-    .info-val{ font-weight:900; font-size:.82rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    #inf-code{
-      font-family:'Courier New', monospace;
-      cursor:pointer;
-      background:rgba(255,255,255,0.10);
-      border-radius:4px;
-    }
-    #info-status{ grid-column:1 / -1; }
-    #inf-status{ font-weight:900; }
-
-    /* CATEGORY STRIP (moved above card) */
-    #cat-strip{
-      background:rgba(0,0,0,0.35);
-      border:1px solid rgba(255,255,255,0.12);
-      border-radius:8px;
-      padding:8px 10px;
       display:flex;
-      align-items:center;
-      justify-content:space-between;
+      flex-direction:column;
       gap:10px;
     }
-    #cat-left{
-      display:flex; flex-direction:column;
-      align-items:flex-start;
-      min-width:0;
+
+    /* Header */
+    #header-row{
+      background:var(--panel-bg);
+      border-radius:8px;
+      padding:8px 8px 10px;
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:6px;
     }
-    #cat-lbl{
-      font-size:.55rem;
-      opacity:.7;
+    .info-cell{ text-align:center; }
+    .info-lbl{
+      font-size:.52rem;
+      opacity:.6;
       font-weight:900;
       text-transform:uppercase;
-      letter-spacing:1px;
+      letter-spacing:.7px;
     }
-    #cat-val{
-      font-weight:900;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      max-width:260px;
-    }
-    #me-badge{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      background:rgba(255,255,255,0.12);
-      border-radius:999px;
-      padding:6px 10px;
+    .info-val{
       font-weight:900;
       font-size:.85rem;
       white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
     }
-    #me-dot{
-      width:10px; height:10px;
-      border-radius:50%;
-      background:var(--accent);
-      box-shadow:0 0 10px var(--accent);
+    #inf-code{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
+      cursor:pointer;
+      background:rgba(255,255,255,0.10);
+      border-radius:6px;
+      padding:2px 6px;
+      display:inline-block;
+    }
+    #info-status{ grid-column: 1 / -1; }
+    #inf-status{ font-weight:900; }
+
+    /* Category strip (moved above main card per your note) */
+    #category-strip{
+      background:rgba(0,0,0,0.22);
+      border:1px solid rgba(255,255,255,0.10);
+      border-radius:10px;
+      padding:8px 10px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+    }
+    #category-strip .tag{
+      font-weight:900;
+      letter-spacing:.5px;
+      opacity:.7;
+      font-size:.7rem;
+      text-transform:uppercase;
+    }
+    #category-strip .val{
+      font-weight:900;
+      font-size:1.0rem;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      max-width: 90%;
     }
 
-    /* JUMBOTRON */
+    /* [E] JUMBOTRON (SQUARE PANELS) ------------------------------------ */
     #jumbotron{
       display:grid;
       grid-template-columns: 1fr 1fr;
       gap:8px;
-      height:180px;
+      height:auto; /* width drives height */
+    }
+    #mini-grid-container,
+    #call-box{
+      aspect-ratio: 1 / 1;
+      width:100%;
     }
 
     #mini-grid-container{
       background:#020617;
       border:2px solid #fff;
-      border-radius:8px;
+      border-radius:10px;
       display:flex;
       align-items:center;
       justify-content:center;
@@ -240,8 +271,8 @@
     }
     #mini-grid{
       display:grid;
-      grid-template-columns: repeat(5,1fr);
-      grid-template-rows: repeat(5,1fr);
+      grid-template-columns: repeat(5, 1fr);
+      grid-template-rows: repeat(5, 1fr);
       width:100%;
       height:100%;
       gap:0;
@@ -254,6 +285,7 @@
       justify-content:center;
       font-size:.7rem;
       font-weight:900;
+      user-select:none;
     }
     .trk-cell.active{
       color:var(--accent);
@@ -263,7 +295,7 @@
     #call-box{
       background:#000;
       border:2px solid #fff;
-      border-radius:8px;
+      border-radius:10px;
       display:flex;
       flex-direction:column;
       align-items:center;
@@ -273,7 +305,7 @@
     }
     .call-lbl{
       position:absolute;
-      top:6px;
+      top:8px;
       font-size:.7rem;
       opacity:.55;
       text-transform:uppercase;
@@ -282,48 +314,28 @@
     .call-val{
       font-family:var(--font-head);
       font-size:5rem;
-      color:#fff;
       line-height:1;
-      animation: pop .2s ease;
+      color:#fff;
     }
-    @keyframes pop { 0%{transform:scale(.6); opacity:.4;} 100%{transform:scale(1); opacity:1;} }
+    /* animate ONCE per new call (not on every STATE tick) */
+    @keyframes callPop { 0%{transform:scale(.92);} 60%{transform:scale(1.05);} 100%{transform:scale(1);} }
+    .call-pop{ animation: callPop .22s ease-out; }
 
-    .pyramid{
-      width:0; height:0;
-      border-left:45px solid transparent;
-      border-right:45px solid transparent;
-      border-bottom:70px solid #fbbf24;
-      position:relative;
-      margin-top:10px;
-      filter: drop-shadow(0 0 10px rgba(251,191,36,0.25));
-      animation: pop .2s ease;
-    }
-    .pyramid::after{
-      content:'23';
-      position:absolute;
-      bottom:-65px;
-      left:-18px;
-      color:#000;
-      font-weight:900;
-      font-family:var(--font-head);
-      font-size:1.5rem;
-    }
-
-    /* CARD */
+    /* Card */
     #card-wrapper{
       width:100%;
-      aspect-ratio:1/1;
+      aspect-ratio: 1/1;
       position:relative;
-      background:#000;
       border:4px solid #fff;
-      border-radius:8px;
-      box-shadow:0 10px 40px rgba(0,0,0,0.4);
+      border-radius:10px;
       overflow:hidden;
+      background:#000;
+      box-shadow:0 10px 40px rgba(0,0,0,0.4);
     }
     #target-img{
+      position:absolute; inset:0;
       width:100%; height:100%;
       object-fit:cover;
-      position:absolute; inset:0;
       z-index:1;
     }
     #tile-grid{
@@ -336,46 +348,47 @@
     }
     .tile{
       background:var(--tile-off);
-      color:rgba(255,255,255,0.35);
+      color:rgba(255,255,255,0.28);
       display:flex;
       align-items:center;
       justify-content:center;
       font-family:var(--font-head);
       font-size:2rem;
-      cursor:pointer;
       user-select:none;
-      transition: opacity .2s ease;
+      cursor:pointer;
+      transition: opacity .2s;
     }
     .tile.revealed{ opacity:0; pointer-events:none; }
-    .tile[data-n="23"]{ color:transparent; }
+    .tile.locked{ cursor:not-allowed; }
 
-    /* CONTROLS BAR */
+    /* Controls bar (one pane at a time) */
     #controls-bar{
       width:100%;
       height:60px;
       position:relative;
     }
     #host-btns, #player-btns, #guess-interface, #waiting-msg{
-      position:absolute; inset:0;
-      width:100%; height:100%;
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
     }
-
     #host-btns{ display:none; }
     #host-btns.show{ display:block; }
 
     .btn-call{
       width:100%; height:100%;
-      border-radius:8px;
       border:none;
+      border-radius:10px;
+      cursor:pointer;
       background:#fff;
       color:#000;
       font-family:var(--font-head);
-      font-size:1.5rem;
-      cursor:pointer;
-      box-shadow:0 4px 0 #999;
+      font-size:1.45rem;
+      box-shadow:0 4px 0 rgba(0,0,0,0.35);
     }
     .btn-call:active{ transform:translateY(4px); box-shadow:none; }
-    .btn-call:disabled{ opacity:.55; cursor:not-allowed; }
+    .btn-call:disabled{ opacity:.5; cursor:not-allowed; box-shadow:none; }
 
     #player-btns{ display:none; gap:10px; }
     #player-btns.show{ display:flex; }
@@ -383,93 +396,52 @@
     .ctrl-btn{
       flex:1 1 auto;
       height:100%;
-      border-radius:8px;
       border:none;
-      font-family:var(--font-head);
-      font-size:1.2rem;
+      border-radius:10px;
       cursor:pointer;
-      box-shadow:0 4px 0 rgba(0,0,0,0.3);
+      font-family:var(--font-head);
+      font-size:1.15rem;
+      box-shadow:0 4px 0 rgba(0,0,0,0.35);
     }
     .ctrl-btn:active{ transform:translateY(4px); box-shadow:none; }
     .btn-guess{ background:var(--accent); color:#000; }
     .btn-pass{ background:#ef4444; color:#fff; }
-
-    #guess-interface{ display:none; gap:6px; }
-    #guess-interface.show{ display:flex; }
-
-    #guess-field{
-      flex:1 1 auto;
-      height:100%;
-      padding:0 15px;
-      border-radius:8px;
-      border:none;
-      font-size:1.2rem;
-      text-align:center;
-      outline:none;
-      background:#fff;
-      color:#000;
-      min-width:0;
-      font-weight:900;
-    }
-    #guess-interface .ctrl-btn.btn-guess{ flex:0 0 110px; }
-    #guess-interface .ctrl-btn.btn-pass{ flex:0 0 60px; }
 
     #waiting-msg{
       display:none;
       align-items:center;
       justify-content:center;
       text-align:center;
-      font-size:.95rem;
-      color:rgba(255,255,255,0.75);
-      padding:0 6px;
-      pointer-events:none;
       font-weight:900;
+      color:rgba(255,255,255,0.75);
+      pointer-events:none;
     }
     #waiting-msg.show{ display:flex; }
 
-    /* CHAT PLACEHOLDER */
-    #chat-bar{
-      background:rgba(0,0,0,0.4);
-      padding:10px;
-      display:flex;
-      gap:10px;
+    /* Guess row: stable on narrow widths */
+    #guess-interface{ display:none; }
+    #guess-interface.show{
+      display:grid;
+      grid-template-columns: 1fr 96px 56px;
+      gap:6px;
       align-items:center;
-      border-top:1px solid rgba(255,255,255,0.1);
     }
-    #chat-input{
-      flex:1;
-      padding:10px;
-      border-radius:8px;
+    #guess-field{
+      width:100%;
+      height:100%;
       border:none;
-      font-family:var(--font-body);
-      outline:none;
-      margin:0;
-    }
-    #chat-send{
-      width:70px;
-      border-radius:8px;
-      border:none;
-      background:#3b82f6;
-      color:#fff;
+      border-radius:10px;
+      padding:0 12px;
+      font-size:1.1rem;
       font-weight:900;
-      cursor:pointer;
-    }
-    #chat-btn-float{
-      position:fixed;
-      bottom:80px;
-      right:20px;
-      width:50px;
-      height:50px;
+      text-align:center;
+      outline:none;
       background:#fff;
-      border-radius:50%;
-      font-size:1.5rem;
-      border:none;
-      box-shadow:0 4px 10px rgba(0,0,0,0.3);
-      z-index:50;
-      display:none;
+      color:#000;
+      min-width:140px;
     }
 
-    /* TOAST */
+    /* Toast */
     #toast{
       position:fixed;
       bottom:90px;
@@ -484,11 +456,11 @@
       z-index:999;
       opacity:0;
       pointer-events:none;
-      transition:opacity .2s ease;
+      transition: opacity .2s ease;
     }
     #toast.show{ opacity:1; }
 
-    /* WIN OVERLAY (click to dismiss) */
+    /* Win overlay */
     #win-overlay{
       position:fixed;
       inset:0;
@@ -496,55 +468,61 @@
       display:none;
       align-items:center;
       justify-content:center;
-      padding:20px;
     }
     #win-overlay.show{ display:flex; }
-
-    #win-backdrop{
+    .win-backdrop{
       position:absolute;
       inset:0;
       background:rgba(0,0,0,0.60);
-      backdrop-filter: blur(2px);
     }
-
-    #win-card{
+    .win-card{
       position:relative;
-      width:min(520px, 92vw);
-      background:rgba(255,255,255,0.10);
-      border:2px solid rgba(255,255,255,0.20);
+      width:min(92vw, 520px);
+      background:rgba(255,255,255,0.08);
+      border:2px solid rgba(255,255,255,0.22);
       border-radius:18px;
       padding:18px;
-      box-shadow:0 20px 60px rgba(0,0,0,0.45);
       text-align:center;
-      overflow:hidden;
+      backdrop-filter: blur(10px);
+      box-shadow:0 18px 60px rgba(0,0,0,0.55);
     }
-
-    #win-title{
+    .win-title{
       font-family:var(--font-head);
-      font-size:2rem;
-      margin:6px 0 4px;
+      font-size:2.1rem;
+      margin:2px 0 10px;
     }
-    #win-sub{
+    .win-sub{
       font-weight:900;
-      opacity:.9;
-      margin-bottom:12px;
+      opacity:.8;
+      margin-bottom:10px;
     }
-    #win-img{
-      width:100%;
-      aspect-ratio:1/1;
+    .win-ans{
+      font-weight:900;
+      font-size:1.15rem;
+      background:rgba(0,0,0,0.35);
+      padding:8px 10px;
       border-radius:12px;
+      margin:0 auto 14px;
+      max-width:100%;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .win-img{
+      width:100%;
+      aspect-ratio: 1/1;
+      border-radius:14px;
+      overflow:hidden;
       border:2px solid rgba(255,255,255,0.25);
+    }
+    .win-img img{
+      width:100%;
+      height:100%;
       object-fit:cover;
       display:block;
     }
-    #win-hint{
-      margin-top:10px;
-      font-weight:900;
-      opacity:.8;
-      font-size:.9rem;
-    }
 
-    /* Fireworks (simple burst particles) */
+    /* Simple fireworks (CSS-only) */
     .fw{
       position:absolute;
       inset:0;
@@ -553,29 +531,23 @@
     }
     .spark{
       position:absolute;
-      width:6px;
-      height:6px;
+      width:10px; height:10px;
       border-radius:50%;
-      background:var(--accent);
-      opacity:0;
-      animation: burst 1.1s ease-in-out infinite;
-      filter: drop-shadow(0 0 10px rgba(255,255,255,0.20));
+      opacity:.9;
+      background: radial-gradient(circle, var(--accent), rgba(255,255,255,0));
+      animation: shoot 1.1s ease-out infinite;
     }
-    @keyframes burst{
-      0%{ transform:translate(0,0) scale(.2); opacity:0; }
-      10%{ opacity:1; }
-      70%{ opacity:.9; }
-      100%{ transform:translate(var(--dx), var(--dy)) scale(1.2); opacity:0; }
+    @keyframes shoot{
+      0%{ transform:translateY(110vh) scale(.7); opacity:0; }
+      15%{ opacity:1; }
+      60%{ opacity:.9; }
+      100%{ transform:translateY(-30vh) scale(2.6); opacity:0; }
     }
 
-    .hidden{ display:none !important; }
-
+    /* Mobile */
     @media (max-width: 800px){
-      #game-layout{ grid-template-columns:1fr; }
+      #game-layout{ grid-template-columns: 1fr; }
       .sidebar{ display:none; }
-      #chat-bar{ display:none; }
-      #chat-btn-float{ display:block; }
-      #cat-val{ max-width: 180px; }
     }
   </style>
 </head>
@@ -585,10 +557,11 @@
   <!-- LOBBY -->
   <div id="screen-lobby" class="screen active">
     <div class="card-panel">
-      <h1>REVEAL! v4.7.1</h1>
-      <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
+      <h1 style="margin:0 0 6px;">REVEAL! v4.8</h1>
+      <div style="opacity:.65; font-weight:900; margin-bottom:14px;">Host calls numbers. Players guess on their turn.</div>
+      <div style="display:flex; flex-direction:column; gap:10px;">
         <button class="big-btn" onclick="showHostSetup()">HOST GAME</button>
-        <div style="opacity:0.5; margin:5px 0;">OR</div>
+        <div style="opacity:0.5; font-weight:900;">OR</div>
         <button class="big-btn secondary" onclick="showJoinSetup()">JOIN GAME</button>
       </div>
     </div>
@@ -597,73 +570,78 @@
   <!-- HOST SETUP -->
   <div id="screen-host-setup" class="screen">
     <div class="card-panel">
-      <h2>GAME SETUP</h2>
+      <h2 style="margin:0 0 12px;">GAME SETUP</h2>
 
       <div class="control-group">
         <label>HOST NAME</label>
-        <input type="text" id="host-name" placeholder="Name">
+        <input id="host-name" placeholder="Name">
       </div>
 
       <div class="control-group">
         <label>CATEGORY</label>
-        <input type="text" id="game-cat" placeholder="e.g. 80s Movies">
+        <input id="game-cat" placeholder="e.g. Landmark">
       </div>
 
       <div class="control-group">
         <label>ANSWER</label>
-        <input type="text" id="game-ans" placeholder="Secret Answer">
+        <input id="game-ans" placeholder="Secret Answer">
       </div>
 
       <div class="control-group">
         <label>IMAGE</label>
-        <input type="file" id="img-upload" accept="image/*" onchange="processImage()">
+        <input id="img-upload" type="file" accept="image/*" onchange="processImage()">
       </div>
 
       <div class="control-group">
         <label>STYLE (PREVIEW)</label>
-        <select id="host-style"></select>
+        <select id="host-style" onchange="applySkin(this.value, true)">
+          <!-- options injected by JS -->
+        </select>
       </div>
 
       <button class="big-btn" id="btn-create" disabled onclick="createGame()">CREATE ROOM</button>
-      <button class="big-btn secondary" onclick="goTo('screen-lobby')" style="margin-top:15px; font-size:1rem;">BACK</button>
+      <button class="big-btn secondary" style="margin-top:14px; font-size:1rem;" onclick="goTo('screen-lobby')">BACK</button>
     </div>
   </div>
 
-  <!-- JOIN CODE -->
+  <!-- JOIN: CODE -->
   <div id="screen-join-code" class="screen">
     <div class="card-panel">
-      <h2>ENTER CODE</h2>
-      <input type="text" id="join-code" class="code-input" maxlength="4" placeholder="ABCD">
+      <h2 style="margin:0 0 12px;">ENTER CODE</h2>
+      <input id="join-code" class="code-input" maxlength="4" placeholder="ABCD">
       <button class="big-btn" id="btn-search" onclick="searchRoom()">NEXT</button>
-      <button class="big-btn secondary" onclick="goTo('screen-lobby')" style="margin-top:15px; font-size:1rem;">BACK</button>
+      <button class="big-btn secondary" style="margin-top:14px; font-size:1rem;" onclick="goTo('screen-lobby')">BACK</button>
     </div>
   </div>
 
-  <!-- JOIN SETUP -->
+  <!-- JOIN: NAME -->
   <div id="screen-join-setup" class="screen">
     <div class="card-panel">
-      <h2 id="join-room-disp">ROOM FOUND</h2>
-      <div id="join-host-disp" style="color:var(--accent); margin-bottom:15px; font-weight:900;">Connecting...</div>
+      <h2 id="join-room-disp" style="margin:0 0 6px;">ROOM FOUND</h2>
+      <div id="join-host-disp" style="color:var(--accent); font-weight:900; margin-bottom:14px;">Connecting...</div>
 
       <div class="control-group">
         <label>YOUR NAME</label>
-        <input type="text" id="join-name" placeholder="YOUR NAME">
+        <input id="join-name" placeholder="Name">
       </div>
 
       <div class="control-group">
         <label>STYLE (PREVIEW)</label>
-        <select id="join-style"></select>
+        <select id="join-style" onchange="applySkin(this.value, true)">
+          <!-- options injected by JS -->
+        </select>
       </div>
 
       <button class="big-btn" id="btn-enter" disabled onclick="enterGame()">ENTER GAME</button>
-      <button class="big-btn secondary" onclick="goTo('screen-lobby')" style="margin-top:15px; font-size:1rem;">BACK</button>
+      <button class="big-btn secondary" style="margin-top:14px; font-size:1rem;" onclick="goTo('screen-lobby')">BACK</button>
     </div>
   </div>
 
   <!-- GAME -->
   <div id="screen-game" class="screen">
     <div id="game-layout">
-      <!-- LEFT: PLAYERS -->
+
+      <!-- LEFT SIDEBAR -->
       <div class="sidebar" id="sb-players">
         <div class="sb-head">PLAYERS</div>
         <div id="list-players"></div>
@@ -679,18 +657,22 @@
               <div class="info-lbl">HOST</div>
               <div class="info-val" id="inf-host">?</div>
             </div>
+
             <div class="info-cell">
-              <div class="info-lbl">ROOM</div>
+              <div class="info-lbl">YOU</div>
+              <div class="info-val" id="inf-you">?</div>
+            </div>
+
+            <div class="info-cell">
+              <div class="info-lbl">CODE</div>
               <div class="info-val" id="inf-code" onclick="copyCode()">----</div>
             </div>
 
             <div class="info-cell">
               <div class="info-lbl">STYLE</div>
-              <select id="style-in-game" style="padding:0; margin:0; height:20px; font-size:0.82rem; background:transparent; color:white; border:none; outline:none;"></select>
-            </div>
-            <div class="info-cell">
-              <div class="info-lbl">ROLE</div>
-              <div class="info-val" id="inf-role">PLAYER</div>
+              <select id="style-in-game" onchange="applySkin(this.value, true)" style="padding:0; height:22px; font-size:.85rem; background:transparent; color:#fff; border:none; outline:none; font-weight:900;">
+                <!-- options injected by JS -->
+              </select>
             </div>
 
             <div class="info-cell" id="info-status">
@@ -699,33 +681,26 @@
             </div>
           </div>
 
-          <!-- CATEGORY STRIP -->
-          <div id="cat-strip">
-            <div id="cat-left">
-              <div id="cat-lbl">CATEGORY</div>
-              <div id="cat-val">?</div>
-            </div>
-            <div id="me-badge" title="You">
-              <div id="me-dot"></div>
-              <div id="me-name">?</div>
-            </div>
-          </div>
-
           <!-- JUMBOTRON -->
           <div id="jumbotron">
             <div id="mini-grid-container">
               <div id="mini-grid"></div>
             </div>
-
             <div id="call-box">
               <div class="call-lbl">CURRENT CALL</div>
-              <div class="call-val" id="current-call-text">--</div>
+              <div class="call-val" id="call-val">--</div>
             </div>
+          </div>
+
+          <!-- CATEGORY STRIP -->
+          <div id="category-strip">
+            <div class="tag">CATEGORY</div>
+            <div class="val" id="inf-cat">?</div>
           </div>
 
           <!-- CARD -->
           <div id="card-wrapper">
-            <img id="target-img" src="">
+            <img id="target-img" src="" alt="">
             <div id="tile-grid"></div>
           </div>
 
@@ -740,605 +715,595 @@
               <button class="ctrl-btn btn-pass" onclick="passTurn()">PASS</button>
             </div>
 
+            <div id="waiting-msg">Waiting for your turn…</div>
+
             <div id="guess-interface">
-              <input type="text" id="guess-field" placeholder="ANSWER..." autocomplete="off">
+              <input id="guess-field" placeholder="TYPE YOUR GUESS…">
               <button class="ctrl-btn btn-guess" onclick="sendGuess()">SEND</button>
               <button class="ctrl-btn btn-pass" onclick="cancelGuess()">X</button>
             </div>
-
-            <div id="waiting-msg">Waiting…</div>
           </div>
 
         </div>
       </div>
 
-      <!-- RIGHT: GUESSES -->
+      <!-- RIGHT SIDEBAR -->
       <div class="sidebar" id="sb-guesses">
         <div class="sb-head">WRONG GUESSES</div>
         <div id="list-guesses"></div>
       </div>
+
     </div>
 
-    <!-- FOOTER CHAT PLACEHOLDER -->
-    <div id="chat-bar">
-      <input type="text" id="chat-input" placeholder="Chat...">
-      <button id="chat-send" onclick="alert('Chat coming later')">SEND</button>
+    <!-- FOOTER (placeholder) -->
+    <div style="height:60px; background:rgba(0,0,0,0.35); border-top:1px solid rgba(255,255,255,0.08); display:flex; align-items:center; justify-content:center; font-weight:900; opacity:.6;">
+      Chat later.
     </div>
-    <button id="chat-btn-float" onclick="alert('Chat drawer...')">💬</button>
   </div>
 
-  <!-- TOAST -->
+  <!-- Toast -->
   <div id="toast"></div>
 
-  <!-- WIN OVERLAY -->
-  <div id="win-overlay" onclick="dismissWinOverlay()">
-    <div id="win-backdrop"></div>
-    <div id="win-card">
-      <div class="fw" id="fw"></div>
-      <div id="win-title">WIN</div>
-      <div id="win-sub">They guessed: <span id="win-ans"></span></div>
-      <img id="win-img" src="" alt="Revealed image">
-      <div id="win-hint">Click anywhere to continue</div>
+  <!-- Win Overlay -->
+  <div id="win-overlay">
+    <div class="win-backdrop"></div>
+    <div class="fw" id="fw">
+      <div class="spark" style="left:10%; animation-delay:.0s;"></div>
+      <div class="spark" style="left:24%; animation-delay:.25s;"></div>
+      <div class="spark" style="left:38%; animation-delay:.12s;"></div>
+      <div class="spark" style="left:52%; animation-delay:.32s;"></div>
+      <div class="spark" style="left:66%; animation-delay:.18s;"></div>
+      <div class="spark" style="left:80%; animation-delay:.38s;"></div>
+      <div class="spark" style="left:92%; animation-delay:.22s;"></div>
+    </div>
+    <div class="win-card">
+      <div class="win-title" id="win-title">Someone wins!</div>
+      <div class="win-sub">They Guessed:</div>
+      <div class="win-ans" id="win-ans">ANSWER</div>
+      <div class="win-img"><img id="win-img" src="" alt=""></div>
+      <button class="big-btn secondary" style="margin-top:14px;" onclick="hideWin()">CLOSE</button>
     </div>
   </div>
 
 <script>
-  /* -----------------------------------------------------------------------
-     SKINS (cool names restored)
-  ----------------------------------------------------------------------- */
+  /* ================================
+     [1] SKINS (names restored)
+     ================================ */
   const SKINS = {
-    neon_grape:      { label:'Neon Grape',      bg:'#4c1d95', acc:'#2dd4bf', text:'#ffffff', tile:'#1e293b' },
-    dark_academia:   { label:'Dark Academia',   bg:'#1c1917', acc:'#fbbf24', text:'#fef3c7', tile:'#292524' },
-    art_deco:        { label:'Art Deco',        bg:'#111827', acc:'#facc15', text:'#f8fafc', tile:'#1f2937' },
-    midnight_gold:   { label:'Midnight Gold',   bg:'#18181b', acc:'#facc15', text:'#f4f4f5', tile:'#27272a' },
-    storm_slate:     { label:'Storm Slate',     bg:'#0f172a', acc:'#38bdf8', text:'#e2e8f0', tile:'#1f2937' },
-    miami_sunset:    { label:'Miami Sunset',    bg:'#7c2d12', acc:'#fb7185', text:'#fff7ed', tile:'#451a03' },
-    cryptid_forest:  { label:'Cryptid Forest',  bg:'#064e3b', acc:'#a7f3d0', text:'#ecfdf5', tile:'#052e16' },
-    killer_carnival: { label:'Killer Carnival', bg:'#3b0764', acc:'#f472b6', text:'#fae8ff', tile:'#1f0933' },
-    blue_ice:        { label:'Blue Ice',        bg:'#0c4a6e', acc:'#a5f3fc', text:'#ecfeff', tile:'#083344' },
-    lava_lamp:       { label:'Lava Lamp',       bg:'#7f1d1d', acc:'#fdba74', text:'#fff7ed', tile:'#3f0b0b' }
+    neon_grape:    { name:"Neon Grape",      bg:"#4c1d95", acc:"#2dd4bf", text:"#ffffff", tile:"#1e293b" },
+    dark_academia: { name:"Dark Academia",   bg:"#111827", acc:"#fbbf24", text:"#f8fafc", tile:"#1f2937" },
+    art_deco:      { name:"Art Deco",        bg:"#0b1220", acc:"#d4af37", text:"#f8fafc", tile:"#172554" },
+    midnight_gold: { name:"Midnight Gold",   bg:"#18181b", acc:"#facc15", text:"#f4f4f5", tile:"#27272a" },
+    storm_slate:   { name:"Storm Slate",     bg:"#0f172a", acc:"#38bdf8", text:"#e2e8f0", tile:"#1f2937" },
+    miami_sunset:  { name:"Miami Sunset",    bg:"#7c2d12", acc:"#fb7185", text:"#fff7ed", tile:"#451a03" },
+    cryptid_forest:{ name:"Cryptid Forest",  bg:"#064e3b", acc:"#a7f3d0", text:"#ecfdf5", tile:"#052e16" },
+    killer_carnival:{name:"Killer Carnival", bg:"#3b0764", acc:"#f472b6", text:"#fae8ff", tile:"#1f0933" },
+    blue_ice:      { name:"Blue Ice",        bg:"#0c4a6e", acc:"#a5f3fc", text:"#ecfeff", tile:"#083344" },
+    lava_lamp:     { name:"Lava Lamp",       bg:"#7f1d1d", acc:"#fdba74", text:"#fff7ed", tile:"#3f0b0b" },
+    old_paper:     { name:"Old Paper",       bg:"#1c1917", acc:"#fbbf24", text:"#fef3c7", tile:"#292524" },
+    mono_punch:    { name:"Mono Punch",      bg:"#111827", acc:"#ffffff", text:"#ffffff", tile:"#374151" }
   };
 
-  function applySkin(key){
-    const s = SKINS[key] || SKINS.neon_grape;
-    const r = document.documentElement.style;
-    r.setProperty('--bg-color', s.bg);
-    r.setProperty('--accent', s.acc);
-    r.setProperty('--text-main', s.text);
-    r.setProperty('--tile-off', s.tile);
-  }
-
-  function fillSkinSelect(selectEl){
-    selectEl.innerHTML = '';
-    Object.keys(SKINS).forEach(k => {
-      const opt = document.createElement('option');
-      opt.value = k;
-      opt.textContent = SKINS[k].label;
-      selectEl.appendChild(opt);
+  function fillSkinSelect(selId){
+    const sel = document.getElementById(selId);
+    if(!sel) return;
+    sel.innerHTML = "";
+    Object.entries(SKINS).forEach(([k,v])=>{
+      const o = document.createElement("option");
+      o.value = k;
+      o.textContent = v.name;
+      sel.appendChild(o);
     });
   }
 
-  /* -----------------------------------------------------------------------
-     GLOBAL STATE
-  ----------------------------------------------------------------------- */
-  let myName = '';
-  let mySkin = 'neon_grape';
-  let roomCode = '';
+  // sync selects so dropdown reflects current choice
+  let mySkinKey = "neon_grape";
+  function applySkin(key, syncSelects){
+    const s = SKINS[key] || SKINS.neon_grape;
+    mySkinKey = key in SKINS ? key : "neon_grape";
+    const r = document.documentElement.style;
+    r.setProperty("--bg-color", s.bg);
+    r.setProperty("--accent", s.acc);
+    r.setProperty("--text-main", s.text);
+    r.setProperty("--tile-off", s.tile);
+
+    if(syncSelects){
+      ["host-style","join-style","style-in-game"].forEach(id=>{
+        const el = document.getElementById(id);
+        if(el) el.value = mySkinKey;
+      });
+    }
+  }
+
+  /* ================================
+     [2] GLOBAL STATE
+     ================================ */
+  let myName = "";
+  let roomCode = "";
   let isHost = false;
   let client = null;
   let gameImg = null;
 
-  let currentPane = 'wait';          // 'host' | 'player' | 'guess' | 'wait'
-  let winOverlayDismissed = false;
+  // prevents re-render thrash (and call animation spam)
+  let lastRenderedCall = null;
 
-  let gameState = {
+  // only host sends when dirty (plus periodic heartbeat)
+  let dirty = false;
+
+  const gameState = {
     host: "",
-    hostSkin: "neon_grape",
     cat: "",
     ans: "",
-    players: [],      // [{name, skin}]
-    guesses: [],      // [{from, txt, pct}]
-    revealed: [],     // [numbers]
-    status: "WAITING",// "WAITING" | "WIN"
+    players: [],       // [{name}]
+    revealed: [],      // [numbers called]
+    guesses: [],       // [{from, txt, pct}] WRONG ONLY (correct guess never stored)
+    status: "WAITING", // WAITING | WIN
     winner: "",
-    turnIndex: 0
+    winnerGuess: "",
+    turnIndex: 0       // index into players[]
   };
 
-  const BROKER    = 'wss://broker.emqx.io:8084/mqtt';
-  const TOPIC_PRE = 'reveal_v4_2';
+  const BROKER = "wss://broker.emqx.io:8084/mqtt";
+  const TOPIC_PRE = "reveal_v4_8"; // new topic to avoid old collisions
 
-  /* -----------------------------------------------------------------------
-     NAV
-  ----------------------------------------------------------------------- */
+  /* ================================
+     [3] NAV HELPERS
+     ================================ */
   function goTo(id){
-    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
     const el = document.getElementById(id);
-    if (el) el.classList.add('active');
+    if(el) el.classList.add("active");
   }
-  function showHostSetup(){ goTo('screen-host-setup'); }
-  function showJoinSetup(){ goTo('screen-join-code'); }
+  function showHostSetup(){ goTo("screen-host-setup"); }
+  function showJoinSetup(){ goTo("screen-join-code"); }
 
-  /* -----------------------------------------------------------------------
-     IMAGE HANDLING
-  ----------------------------------------------------------------------- */
+  /* ================================
+     [4] IMAGE HANDLING
+     ================================ */
   function processImage(){
-    const file = document.getElementById('img-upload').files[0];
-    if (!file) return;
+    const file = document.getElementById("img-upload").files[0];
+    if(!file) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = (e)=>{
       const img = new Image();
       img.src = e.target.result;
-      img.onload = () => {
-        const c = document.createElement('canvas');
-        const ctx = c.getContext('2d');
-
+      img.onload = ()=>{
+        const c = document.createElement("canvas");
+        const ctx = c.getContext("2d");
         const s = Math.min(img.width, img.height);
         c.width = 600; c.height = 600;
-        ctx.drawImage(img,
-          (img.width - s)/2, (img.height - s)/2, s, s,
-          0, 0, 600, 600
-        );
-
-        gameImg = c.toDataURL('image/jpeg', 0.65);
-        document.getElementById('btn-create').disabled = false;
+        ctx.drawImage(img, (img.width - s)/2, (img.height - s)/2, s, s, 0, 0, 600, 600);
+        gameImg = c.toDataURL("image/jpeg", 0.72);
+        document.getElementById("btn-create").disabled = false;
       };
     };
     reader.readAsDataURL(file);
   }
 
-  /* -----------------------------------------------------------------------
-     MQTT CONNECT
-  ----------------------------------------------------------------------- */
+  /* ================================
+     [5] MQTT CONNECT
+     ================================ */
   function connectMQTT(){
-    if (client) return;
+    if(client) return;
 
     client = mqtt.connect(BROKER);
-    client.on('connect', () => {
+
+    client.on("connect", ()=>{
       client.subscribe(`${TOPIC_PRE}/${roomCode}`);
 
-      // ask for state if joining
-      if (!isHost){
-        client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'REQ_STATE'}));
+      // Ask for state if joining
+      if(!isHost){
+        client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type:"REQ_STATE" }));
       }
     });
 
-    client.on('message', handleMsg);
+    client.on("message", handleMsg);
   }
 
-  /* -----------------------------------------------------------------------
-     HOST CREATE
-  ----------------------------------------------------------------------- */
+  /* ================================
+     [6] HOST CREATE / JOIN FLOW
+     ================================ */
   function createGame(){
-    myName = (document.getElementById('host-name').value || '').trim() || 'Host';
-    mySkin = document.getElementById('host-style').value || 'neon_grape';
-
+    myName = (document.getElementById("host-name").value || "").trim() || "Host";
     isHost = true;
+
+    gameState.host = myName;
+    gameState.cat  = (document.getElementById("game-cat").value || "").trim() || "Category";
+    gameState.ans  = (document.getElementById("game-ans").value || "").trim();
+
     roomCode = Math.random().toString(36).substr(2,4).toUpperCase();
 
-    gameState = {
-      host: myName,
-      hostSkin: mySkin,
-      cat: (document.getElementById('game-cat').value || '').trim(),
-      ans: (document.getElementById('game-ans').value || '').trim(),
-      players: [],        // IMPORTANT: host is NOT a player
-      guesses: [],
-      revealed: [],
-      status: "WAITING",
-      winner: "",
-      turnIndex: 0
-    };
-
     connectMQTT();
-    startGame();
+    startGameUI();
+
+    dirty = true;
     sendState();
 
-    // keep broadcasting
-    setInterval(() => {
-      if (client && client.connected && isHost) sendState();
+    // heartbeat (reliability), but UI will not "throb" because we guard call renders
+    setInterval(()=>{
+      if(isHost && client && client.connected){
+        // send only if dirty, but every ~8s send anyway
+        sendState(false);
+      }
     }, 1500);
   }
 
-  /* -----------------------------------------------------------------------
-     JOIN FLOW
-  ----------------------------------------------------------------------- */
   function searchRoom(){
-    const code = (document.getElementById('join-code').value || '').trim().toUpperCase();
-    if (code.length !== 4) { alert('Enter 4-letter code.'); return; }
-
+    const code = (document.getElementById("join-code").value || "").trim().toUpperCase();
+    if(code.length !== 4){ alert("Enter 4-letter code."); return; }
     roomCode = code;
     isHost = false;
-
-    document.getElementById('btn-search').innerText = 'SEARCHING...';
+    document.getElementById("btn-search").textContent = "SEARCHING…";
     connectMQTT();
   }
 
   function enterGame(){
-    myName = (document.getElementById('join-name').value || '').trim();
-    if (!myName) return;
+    myName = (document.getElementById("join-name").value || "").trim();
+    if(!myName) return;
 
-    mySkin = document.getElementById('join-style').value || 'neon_grape';
-
-    if (client && client.connected){
-      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'JOIN', name: myName, skin: mySkin}));
+    // join message
+    if(client && client.connected){
+      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type:"JOIN", name: myName, skin: mySkinKey }));
     }
-
-    startGame();
+    startGameUI();
   }
 
-  /* -----------------------------------------------------------------------
-     TURN HELPERS
-  ----------------------------------------------------------------------- */
-  function getActivePlayerName(){
-    if (!gameState.players || !gameState.players.length) return '';
-    const idx = Math.max(0, Math.min(gameState.turnIndex || 0, gameState.players.length - 1));
-    return gameState.players[idx].name || '';
-  }
+  /* ================================
+     [7] GAME INIT (UI only)
+     ================================ */
+  function startGameUI(){
+    goTo("screen-game");
+    document.getElementById("inf-code").textContent = roomCode;
+    document.getElementById("inf-you").textContent  = myName || (isHost ? gameState.host : "?");
 
-  function isMyTurn(){
-    return !isHost && (getActivePlayerName() === myName);
-  }
-
-  function advanceTurn(){
-    if (!gameState.players || gameState.players.length === 0) return;
-    gameState.turnIndex = (gameState.turnIndex + 1) % gameState.players.length;
-  }
-
-  /* -----------------------------------------------------------------------
-     GAME INIT (UI)
-  ----------------------------------------------------------------------- */
-  function startGame(){
-    goTo('screen-game');
-
-    // Fill skin selects (once)
-    fillSkinSelect(document.getElementById('style-in-game'));
-
-    // Apply my skin and make dropdown reflect it
-    document.getElementById('style-in-game').value = mySkin;
-    applySkin(mySkin);
-
-    document.getElementById('style-in-game').onchange = (e) => {
-      mySkin = e.target.value;
-      applySkin(mySkin);
-      // we intentionally do NOT broadcast player skin changes yet (future feature)
-    };
-
-    document.getElementById('inf-code').innerText = roomCode;
-    document.getElementById('me-name').innerText = myName || (isHost ? gameState.host : '?');
-    document.getElementById('inf-role').innerText = isHost ? 'HOST' : 'PLAYER';
-
-    // Build mini grid 1–25
-    const mg = document.getElementById('mini-grid');
-    mg.innerHTML = '';
-    for (let i=1;i<=25;i++){
-      const d = document.createElement('div');
-      d.className = 'trk-cell';
-      d.id = 'trk-' + i;
-      d.innerText = i;
+    // mini-grid 1..25
+    const mg = document.getElementById("mini-grid");
+    mg.innerHTML = "";
+    for(let i=1;i<=25;i++){
+      const d = document.createElement("div");
+      d.className = "trk-cell";
+      d.id = "trk-" + i;
+      d.textContent = i;
       mg.appendChild(d);
     }
 
-    // Build tiles
-    const grid = document.getElementById('tile-grid');
-    grid.innerHTML = '';
-
+    // card tiles (random per client — ok for this game style)
+    const grid = document.getElementById("tile-grid");
+    grid.innerHTML = "";
     let nums = Array.from({length:25}, (_,i)=>i+1);
-    for (let i=nums.length-1;i>0;i--){
+    for(let i=nums.length-1;i>0;i--){
       const j = Math.floor(Math.random()*(i+1));
       [nums[i], nums[j]] = [nums[j], nums[i]];
     }
-
-    nums.forEach(n => {
-      const t = document.createElement('div');
-      t.className = 'tile';
+    nums.forEach(n=>{
+      const t = document.createElement("div");
+      t.className = "tile";
+      t.textContent = n;
       t.dataset.n = n;
-      t.innerText = n;
-
-      t.onclick = () => {
-        const num = parseInt(t.dataset.n, 10);
-        if ((gameState.revealed || []).includes(num)){
-          t.classList.add('revealed');
-        } else {
+      t.onclick = ()=>{
+        const num = parseInt(t.dataset.n,10);
+        if(gameState.revealed.includes(num)){
+          t.classList.add("revealed");
+        }else{
           alert("That number hasn't been called yet.");
         }
       };
       grid.appendChild(t);
     });
 
-    // Set image if we already have it
-    if (gameImg) document.getElementById('target-img').src = gameImg;
+    if(gameImg) document.getElementById("target-img").src = gameImg;
 
-    // Pane baseline
-    if (isHost) showControlPane('host');
-    else showControlPane('wait');
-
+    // controls
+    showControlPane(isHost ? "host" : "wait");
     updateUI();
   }
 
-  /* -----------------------------------------------------------------------
-     MESSAGE HANDLER
-  ----------------------------------------------------------------------- */
+  /* ================================
+     [8] MESSAGE HANDLER
+     ================================ */
   function handleMsg(topic, m){
     const msg = JSON.parse(m.toString());
 
-    if (msg.type === 'STATE'){
-      gameState = msg.state || gameState;
-      if (msg.img) gameImg = msg.img;
+    if(msg.type === "STATE"){
+      // copy fields
+      Object.assign(gameState, msg.state || {});
+      if(msg.img) gameImg = msg.img;
 
-      // Apply host skin as default if you haven't set one yet (joining midstream)
-      if (!mySkin && !isHost) mySkin = 'neon_grape';
-
-      // Update join screen when state arrives
-      if (document.getElementById('screen-join-code').classList.contains('active')){
-        document.getElementById('join-room-disp').innerText = 'ROOM: ' + roomCode;
-        document.getElementById('join-host-disp').innerText = 'HOST: ' + (gameState.host || '...');
-        document.getElementById('btn-enter').disabled = false;
-        document.getElementById('btn-search').innerText = 'NEXT';
-        goTo('screen-join-setup');
+      // join flow UI
+      if(document.getElementById("screen-join-code").classList.contains("active")){
+        document.getElementById("join-room-disp").textContent = "ROOM: " + roomCode;
+        document.getElementById("join-host-disp").textContent = "HOST: " + (gameState.host || "…");
+        document.getElementById("btn-enter").disabled = false;
+        document.getElementById("btn-search").textContent = "NEXT";
+        goTo("screen-join-setup");
       }
 
-      if (gameImg) document.getElementById('target-img').src = gameImg;
+      if(gameImg){
+        const imgEl = document.getElementById("target-img");
+        if(imgEl && imgEl.src !== gameImg) imgEl.src = gameImg;
+      }
 
       updateUI();
       return;
     }
 
-    if (msg.type === 'REQ_STATE' && isHost){
-      sendState();
+    if(msg.type === "REQ_STATE" && isHost){
+      dirty = true;
+      sendState(true);
       return;
     }
 
-    if (msg.type === 'JOIN' && isHost){
-      const name = (msg.name || '').trim();
-      const skin = msg.skin || 'neon_grape';
-      if (!name) return;
+    if(msg.type === "JOIN" && isHost){
+      // host should NOT be added as a player
+      if(!msg.name || msg.name === gameState.host) return;
 
-      if (!gameState.players.find(p => p.name === name)){
-        gameState.players.push({name, skin});
-        // if this is the first player, they become active automatically (turnIndex 0)
-        if (gameState.players.length === 1) gameState.turnIndex = 0;
-        sendState();
+      if(!gameState.players.find(p=>p.name === msg.name)){
+        gameState.players.push({ name: msg.name });
+        // if first player joins, set turn to them
+        if(gameState.players.length === 1){
+          gameState.turnIndex = 0;
+        }
+        dirty = true;
+        sendState(true);
       }
       return;
     }
 
-    if (msg.type === 'PASS' && isHost){
-      const active = getActivePlayerName();
-      if (active && msg.from !== active) return; // enforce
-      advanceTurn();
-      sendState();
+    if(msg.type === "PASS" && isHost){
+      if(isActivePlayer(msg.from)){
+        advanceTurn();
+        dirty = true;
+        sendState(true);
+      }
       return;
     }
 
-    if (msg.type === 'GUESS' && isHost){
-      handleIncomingGuessAsHost(msg);
+    if(msg.type === "GUESS" && isHost){
+      if(isActivePlayer(msg.from)){
+        handleIncomingGuessAsHost(msg);
+      }
       return;
     }
 
-    if (msg.type === 'HINT'){
-      if (msg.to === myName){
+    if(msg.type === "HINT"){
+      if(msg.to === myName){
         showToast(`Close! ${msg.pct}% match`);
       }
       return;
     }
   }
 
-  /* -----------------------------------------------------------------------
-     UI UPDATE
-  ----------------------------------------------------------------------- */
-  function updateUI(){
-    // header values
-    document.getElementById('inf-host').innerText = gameState.host || '?';
-    document.getElementById('cat-val').innerText = gameState.cat || '?';
-    document.getElementById('me-name').innerText = myName || (isHost ? gameState.host : '?');
+  /* ================================
+     [9] TURN HELPERS
+     ================================ */
+  function currentTurnName(){
+    if(!gameState.players || gameState.players.length === 0) return "";
+    const idx = Math.max(0, Math.min(gameState.turnIndex || 0, gameState.players.length-1));
+    return gameState.players[idx].name;
+  }
+  function isActivePlayer(name){
+    return (name || "") === currentTurnName();
+  }
+  function advanceTurn(){
+    if(!gameState.players || gameState.players.length === 0) return;
+    gameState.turnIndex = (gameState.turnIndex + 1) % gameState.players.length;
+  }
 
-    // status line
-    const active = getActivePlayerName();
-    const st = document.getElementById('inf-status');
-    if (gameState.status === 'WIN'){
-      st.innerText = `WIN: ${gameState.winner || '???'}`;
-    } else {
-      if (!gameState.players.length){
-        st.innerText = isHost ? 'WAITING FOR PLAYERS' : 'WAITING FOR HOST';
-      } else {
-        st.innerText = `TURN: ${active || '???'}`;
-      }
+  /* ================================
+     [10] UI UPDATE
+     ================================ */
+  function updateUI(){
+    document.getElementById("inf-host").textContent = gameState.host || "?";
+    document.getElementById("inf-cat").textContent  = gameState.cat  || "?";
+    document.getElementById("inf-you").textContent  = isHost ? (gameState.host || myName || "?") : (myName || "?");
+
+    const turnName = currentTurnName();
+    const st = document.getElementById("inf-status");
+    if(gameState.status === "WIN"){
+      st.textContent = `${gameState.winner || "???"} wins!`;
+    }else{
+      st.textContent = turnName ? `TURN: ${turnName}` : "WAITING FOR PLAYERS…";
     }
 
-    // mini grid + current call
+    // Mini-grid highlight + call box (only re-render when call changes)
     let last = 0;
-    (gameState.revealed || []).forEach(n => {
-      const el = document.getElementById('trk-' + n);
-      if (el) el.classList.add('active');
+    (gameState.revealed || []).forEach(n=>{
+      const el = document.getElementById("trk-" + n);
+      if(el) el.classList.add("active");
       last = n;
     });
 
-    const callBox = document.getElementById('call-box');
-    if (last === 23){
-      callBox.innerHTML = '<div class="call-lbl">ILLUMINATI</div><div class="pyramid"></div>';
-    } else {
-      callBox.innerHTML = `<div class="call-lbl">CURRENT CALL</div><div class="call-val">${last || '--'}</div>`;
+    if(last !== lastRenderedCall){
+      lastRenderedCall = last;
+      const callVal = document.getElementById("call-val");
+      callVal.textContent = last || "--";
+      callVal.classList.remove("call-pop");
+      // force reflow then add class (one-shot pop)
+      void callVal.offsetWidth;
+      callVal.classList.add("call-pop");
     }
 
-    // reveal tiles that are called (optional convenience)
-    // (we do not auto-reveal tiles; player clicks to reveal — current behavior)
-
-    // players list + highlight active turn
-    const pl = document.getElementById('list-players');
-    pl.innerHTML = '';
-
-    (gameState.players || []).forEach(p => {
-      const d = document.createElement('div');
-      d.className = 'sb-item' + ((p.name === active && gameState.status !== 'WIN') ? ' active-turn' : '');
-      d.innerText = p.name;
+    // Players list with active highlight
+    const pl = document.getElementById("list-players");
+    pl.innerHTML = "";
+    (gameState.players || []).forEach(p=>{
+      const d = document.createElement("div");
+      d.className = "sb-item" + (p.name === turnName ? " active-turn" : "");
+      d.textContent = p.name;
       pl.appendChild(d);
     });
 
-    // guesses list (host sees all, players see only their own) + include %
-    const lg = document.getElementById('list-guesses');
-    lg.innerHTML = '';
+    // Wrong guesses list:
+    // - host sees all with %
+    // - player sees only their own with %
+    const lg = document.getElementById("list-guesses");
+    lg.innerHTML = "";
+    const all = (gameState.guesses || []);
+    const visible = isHost ? all : all.filter(g=>g.from === myName);
 
-    const guesses = (gameState.guesses || []);
-    const view = isHost ? guesses : guesses.filter(g => g.from === myName);
-
-    view.forEach(g => {
-      const d = document.createElement('div');
-      d.className = 'sb-item';
-      const pct = (typeof g.pct === 'number') ? `${g.pct}%` : '';
-      d.innerText = isHost
-        ? `${g.from}: "${g.txt}" — ${pct}`
-        : `"${g.txt}" — ${pct}`;
+    visible.forEach(g=>{
+      const d = document.createElement("div");
+      d.className = "sb-item";
+      d.textContent = `${g.from}: "${g.txt}" — ${g.pct}%`;
       lg.appendChild(d);
     });
 
-    // Disable host call if win
-    const callBtn = document.getElementById('btn-call');
-    if (callBtn) callBtn.disabled = (gameState.status === 'WIN');
-
-    // WIN overlay
-    if (gameState.status === 'WIN'){
-      showWinOverlay();
+    // Controls visibility:
+    // - host always sees CALL
+    // - only active player sees GUESS/PASS (or guess box if opened)
+    if(isHost){
+      showControlPane("host");
+      const btn = document.getElementById("btn-call");
+      if(btn) btn.disabled = (gameState.status === "WIN");
+    }else{
+      if(gameState.status === "WIN"){
+        showControlPane("wait");
+      }else{
+        // If guess interface is open, keep it open; otherwise show player buttons only if active.
+        const guessOpen = document.getElementById("guess-interface").classList.contains("show");
+        if(guessOpen){
+          showControlPane("guess");
+        }else{
+          showControlPane(isActivePlayer(myName) ? "player" : "wait");
+        }
+      }
     }
 
-    // Controls gating
-    if (isHost){
-      showControlPane('host');
-      return;
-    }
-
-    if (gameState.status === 'WIN'){
-      showControlPane('wait');
-      return;
-    }
-
-    // If you are NOT the active player => you get WAIT
-    if (!isMyTurn()){
-      showControlPane('wait');
-      return;
-    }
-
-    // You ARE the active player:
-    // - If you're currently typing (guess pane), do NOT stomp it.
-    if (currentPane === 'guess'){
-      showControlPane('guess');
-    } else {
-      showControlPane('player');
+    // Win overlay
+    if(gameState.status === "WIN"){
+      showWin(gameState.winner, gameState.winnerGuess, gameImg);
     }
   }
 
-  /* -----------------------------------------------------------------------
-     HOST CALL NUMBER
-  ----------------------------------------------------------------------- */
+  /* ================================
+     [11] CONTROLS PANE SWITCHER
+     ================================ */
+  function showControlPane(which){
+    const hostPane   = document.getElementById("host-btns");
+    const playerPane = document.getElementById("player-btns");
+    const guessPane  = document.getElementById("guess-interface");
+    const waitPane   = document.getElementById("waiting-msg");
+
+    hostPane.classList.remove("show");
+    playerPane.classList.remove("show");
+    guessPane.classList.remove("show");
+    waitPane.classList.remove("show");
+
+    if(which === "host")   hostPane.classList.add("show");
+    if(which === "player") playerPane.classList.add("show");
+    if(which === "guess")  guessPane.classList.add("show");
+    if(which === "wait")   waitPane.classList.add("show");
+  }
+
+  /* ================================
+     [12] HOST CALL
+     ================================ */
   function hostCall(){
-    if (gameState.status === 'WIN') return;
+    if(!isHost) return;
+    if(gameState.status === "WIN") return;
 
-    // must have at least 1 player to play turns, but host can still call even if none
     const avail = [];
-    for (let i=1;i<=25;i++){
-      if (!(gameState.revealed || []).includes(i)) avail.push(i);
+    for(let i=1;i<=25;i++){
+      if(!gameState.revealed.includes(i)) avail.push(i);
     }
-    if (!avail.length) return;
+    if(avail.length === 0) return;
 
-    const pick = avail[Math.floor(Math.random() * avail.length)];
+    const pick = avail[Math.floor(Math.random()*avail.length)];
     gameState.revealed.push(pick);
 
-    // host immediate feedback
+    dirty = true;
+    sendState(true);
     updateUI();
-    sendState();
   }
 
-  /* -----------------------------------------------------------------------
-     CONTROLS PANE SWITCHER
-  ----------------------------------------------------------------------- */
-  function showControlPane(which){
-    currentPane = which;
-
-    const hostPane   = document.getElementById('host-btns');
-    const playerPane = document.getElementById('player-btns');
-    const guessPane  = document.getElementById('guess-interface');
-    const waitPane   = document.getElementById('waiting-msg');
-
-    hostPane.classList.remove('show');
-    playerPane.classList.remove('show');
-    guessPane.classList.remove('show');
-    waitPane.classList.remove('show');
-
-    if (which === 'host') hostPane.classList.add('show');
-    if (which === 'player') playerPane.classList.add('show');
-    if (which === 'guess') guessPane.classList.add('show');
-    if (which === 'wait') waitPane.classList.add('show');
-  }
-
-  /* -----------------------------------------------------------------------
-     PLAYER CONTROLS
-  ----------------------------------------------------------------------- */
+  /* ================================
+     [13] PLAYER ACTIONS
+     ================================ */
   function showGuess(){
-    if (!isMyTurn()) return;
-    showControlPane('guess');
-    document.getElementById('guess-field').focus();
+    if(isHost) return;
+    if(!isActivePlayer(myName)) return;
+
+    showControlPane("guess");
+    const f = document.getElementById("guess-field");
+    f.focus();
   }
 
   function cancelGuess(){
-    if (!isMyTurn()) return;
-    showControlPane('player');
+    if(isHost) return;
+    // do NOT clear text automatically — user can keep it if they want (but you asked stay until click)
+    showControlPane("player");
   }
 
   function passTurn(){
-    if (!isMyTurn()) return;
+    if(isHost) return;
+    if(!isActivePlayer(myName)) return;
 
-    if (client && client.connected){
-      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'PASS', from: myName}));
+    // close guess UI if open (but keep typed text—optional; I’m leaving it intact)
+    showControlPane("wait");
+
+    if(client && client.connected){
+      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type:"PASS", from: myName }));
     }
-
-    // Stay waiting until host advances + state arrives
-    showControlPane('wait');
   }
 
   function sendGuess(){
-    if (!isMyTurn()) return;
+    if(isHost) return;
+    if(!isActivePlayer(myName)) return;
 
-    const field = document.getElementById('guess-field');
-    const g = (field.value || '').trim();
-    if (!g) return;
+    const field = document.getElementById("guess-field");
+    const g = (field.value || "").trim();
+    if(!g) return;
 
-    if (client && client.connected){
-      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'GUESS', from: myName, txt: g}));
+    if(client && client.connected){
+      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type:"GUESS", from: myName, txt: g }));
     }
 
-    field.value = '';
-    showControlPane('wait'); // wait for host response/advance
+    // keep input text until user closes? you complained about losing it —
+    // BUT after sending, it should clear (normal UX). If you want it to keep, tell me.
+    field.value = "";
+    showControlPane("wait");
   }
 
-  /* -----------------------------------------------------------------------
-     STATE BROADCAST
-  ----------------------------------------------------------------------- */
-  function sendState(){
-    if (client && client.connected && isHost){
-      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'STATE', state: gameState, img: gameImg}));
+  /* ================================
+     [14] STATE BROADCAST
+     ================================ */
+  function sendState(forceNow){
+    if(!isHost || !client || !client.connected) return;
+
+    // send immediately if forceNow or dirty; otherwise send every ~8 seconds as a safety pulse
+    const now = Date.now();
+    if(forceNow || dirty){
+      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type:"STATE", state: gameState, img: gameImg }));
+      dirty = false;
+      sendState._lastPulse = now;
+      return;
+    }
+
+    // occasional pulse
+    const lastPulse = sendState._lastPulse || 0;
+    if(now - lastPulse > 8000){
+      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type:"STATE", state: gameState, img: gameImg }));
+      sendState._lastPulse = now;
     }
   }
 
-  /* -----------------------------------------------------------------------
-     FUZZY MATCHING (HOST)
-  ----------------------------------------------------------------------- */
+  /* ================================
+     [15] MATCHING (HOST SIDE)
+     ================================ */
   function sanitizeText(s){
-    return (s || '').replace(/\s+/g,'').toUpperCase();
+    return (s || "").replace(/\s+/g,"").toUpperCase();
   }
 
   function levenshtein(a,b){
     const m=a.length, n=b.length;
-    const dp = Array.from({length:m+1}, () => new Array(n+1).fill(0));
-    for (let i=0;i<=m;i++) dp[i][0]=i;
-    for (let j=0;j<=n;j++) dp[0][j]=j;
-
-    for (let i=1;i<=m;i++){
-      for (let j=1;j<=n;j++){
+    const dp = Array.from({length:m+1}, ()=>Array(n+1).fill(0));
+    for(let i=0;i<=m;i++) dp[i][0]=i;
+    for(let j=0;j<=n;j++) dp[0][j]=j;
+    for(let i=1;i<=m;i++){
+      for(let j=1;j<=n;j++){
         const cost = a[i-1]===b[j-1] ? 0 : 1;
-        dp[i][j] = Math.min(
-          dp[i-1][j]+1,
-          dp[i][j-1]+1,
-          dp[i-1][j-1]+cost
-        );
+        dp[i][j] = Math.min(dp[i-1][j]+1, dp[i][j-1]+1, dp[i-1][j-1]+cost);
       }
     }
     return dp[m][n];
@@ -1347,139 +1312,96 @@
   function similarityPercent(guess, answer){
     const g = sanitizeText(guess);
     const a = sanitizeText(answer);
-    if (!g || !a) return 0;
+    if(!g || !a) return 0;
     const dist = levenshtein(g,a);
     const maxLen = Math.max(g.length, a.length);
-    return Math.round((1 - dist / maxLen) * 100);
+    return Math.round((1 - dist/maxLen) * 100);
   }
 
   function handleIncomingGuessAsHost(msg){
-    const active = getActivePlayerName();
-    if (active && msg.from !== active) return; // enforce only active player can guess
-
     const pct = similarityPercent(msg.txt, gameState.ans);
 
-    // WIN: do not add correct guess to sidebar
-    if (pct >= 90){
-      gameState.status = 'WIN';
+    // correct guess => WIN, do NOT add to sidebar list
+    if(pct >= 90){
+      gameState.status = "WIN";
       gameState.winner = msg.from;
-      gameState.revealed = Array.from({length:25}, (_,i)=>i+1);
-      sendState();
-      updateUI();
+      gameState.winnerGuess = msg.txt;
+
+      // reveal picture fully
+      gameState.revealed = Array.from({length:25},(_,i)=>i+1);
+
+      dirty = true;
+      sendState(true);
       return;
     }
 
-    // WRONG: store with pct for per-player display
-    gameState.guesses.push({from: msg.from, txt: msg.txt, pct});
+    // wrong guess stored (with pct) + optional private hint
+    gameState.guesses.push({ from: msg.from, txt: msg.txt, pct });
 
-    // close hint (private toast)
-    if (pct >= 50 && client && client.connected){
-      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:'HINT', to: msg.from, pct}));
+    if(pct >= 50){
+      client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({ type:"HINT", to: msg.from, pct }));
     }
 
-    // auto-advance after any wrong guess
+    // advance turn automatically after a guess
     advanceTurn();
-    sendState();
+
+    dirty = true;
+    sendState(true);
   }
 
-  /* -----------------------------------------------------------------------
-     WIN OVERLAY
-  ----------------------------------------------------------------------- */
-  function showWinOverlay(){
-    if (winOverlayDismissed) return;
+  /* ================================
+     [16] WIN OVERLAY
+     ================================ */
+  function showWin(winner, guess, img){
+    const ov = document.getElementById("win-overlay");
+    if(ov.classList.contains("show")) return;
 
-    const overlay = document.getElementById('win-overlay');
-    const title = document.getElementById('win-title');
-    const ans = document.getElementById('win-ans');
-    const img = document.getElementById('win-img');
+    document.getElementById("win-title").textContent = `${winner || "Someone"} wins!`;
+    document.getElementById("win-ans").textContent = guess || "(unknown)";
+    const wi = document.getElementById("win-img");
+    wi.src = img || "";
 
-    title.textContent = `${gameState.winner || 'Someone'} wins!`;
-    ans.textContent = gameState.ans || '???';
-    img.src = gameImg || '';
-
-    buildFireworks();
-
-    overlay.classList.add('show');
+    ov.classList.add("show");
   }
 
-  function dismissWinOverlay(){
-    const overlay = document.getElementById('win-overlay');
-    overlay.classList.remove('show');
-    winOverlayDismissed = true;
+  function hideWin(){
+    document.getElementById("win-overlay").classList.remove("show");
   }
 
-  function buildFireworks(){
-    const fw = document.getElementById('fw');
-    fw.innerHTML = '';
-
-    // 3 bursts, each ~18 sparks
-    const bursts = [
-      {x: '20%', y:'25%'},
-      {x: '75%', y:'30%'},
-      {x: '55%', y:'70%'}
-    ];
-
-    bursts.forEach((b, bi) => {
-      for (let i=0;i<18;i++){
-        const sp = document.createElement('div');
-        sp.className = 'spark';
-
-        const angle = (Math.PI*2) * (i/18);
-        const radius = 90 + Math.floor(Math.random()*60);
-
-        const dx = Math.cos(angle) * radius;
-        const dy = Math.sin(angle) * radius;
-
-        sp.style.left = b.x;
-        sp.style.top = b.y;
-        sp.style.setProperty('--dx', dx + 'px');
-        sp.style.setProperty('--dy', dy + 'px');
-
-        // stagger
-        sp.style.animationDelay = (bi*0.15 + Math.random()*0.25) + 's';
-
-        // alternate spark color using accent vs white-ish
-        if (i % 3 === 0) sp.style.background = 'white';
-        if (i % 5 === 0) sp.style.background = 'rgba(251,191,36,1)'; // gold-ish
-
-        fw.appendChild(sp);
-      }
-    });
-  }
-
-  /* -----------------------------------------------------------------------
-     SMALL UTILS
-  ----------------------------------------------------------------------- */
+  /* ================================
+     [17] SMALL UTILS
+     ================================ */
   function copyCode(){
-    if (!roomCode) return;
+    if(!roomCode) return;
     navigator.clipboard.writeText(roomCode);
-    alert('Room code copied: ' + roomCode);
+    alert("Room code copied: " + roomCode);
   }
 
   function showToast(text, ms=2000){
-    const t = document.getElementById('toast');
+    const t = document.getElementById("toast");
     t.textContent = text;
-    t.classList.add('show');
-    setTimeout(() => t.classList.remove('show'), ms);
+    t.classList.add("show");
+    setTimeout(()=>t.classList.remove("show"), ms);
   }
 
-  /* -----------------------------------------------------------------------
-     BOOTSTRAP (populate selects + bind preview)
-  ----------------------------------------------------------------------- */
+  /* ================================
+     [18] INIT
+     ================================ */
   (function init(){
-    const hostSel = document.getElementById('host-style');
-    const joinSel = document.getElementById('join-style');
+    // inject style options everywhere
+    fillSkinSelect("host-style");
+    fillSkinSelect("join-style");
+    fillSkinSelect("style-in-game");
 
-    fillSkinSelect(hostSel);
-    fillSkinSelect(joinSel);
+    applySkin("neon_grape", true);
 
-    hostSel.value = 'dark_academia';
-    joinSel.value = 'dark_academia';
-
-    hostSel.onchange = () => applySkin(hostSel.value);
-    joinSel.onchange = () => applySkin(joinSel.value);
-
-    applySkin('dark_academia');
+    // improve join UX: auto-uppercase
+    const jc = document.getElementById("join-code");
+    if(jc){
+      jc.addEventListener("input", ()=>{
+        jc.value = jc.value.toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,4);
+      });
+    }
   })();
 </script>
 
