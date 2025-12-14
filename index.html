@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <!--
-  REVEAL! v4.8.1 – Host adjudication + turn gating (no fuzzy matching)
+  REVEAL! v4.9 – Host adjudication + turn gating + host answer reminder (HOST ONLY)
 
-  CORE LOOP (v4.8)
+  CORE LOOP (v4.8+)
   - Host CALLS a number -> starts a full player turn-cycle.
   - Only active player can PASS or GUESS.
   - If player GUESSES -> game enters ADJUDICATE. Host must click RIGHT/WRONG.
@@ -17,11 +17,12 @@
   - Host can SKIP a player.
   - No 23 gag.
   - Jumbotron panels are square (no rectangles).
+  - NEW (v4.9): Host sees the stored ANSWER during adjudication (HOST ONLY).
 -->
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
-  <title>REVEAL! v4.8.1</title>
+  <title>REVEAL! v4.9</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
 
@@ -189,6 +190,37 @@
     }
     #info-status{grid-column:1 / -1;}
     #inf-status{font-weight:900;}
+
+    /* HOST ANSWER LINE (HOST ONLY) */
+    #host-answer-line{
+      grid-column:1 / -1;
+      display:none;
+      margin-top:2px;
+      padding:6px 8px;
+      border-radius:8px;
+      background:rgba(0,0,0,.25);
+      border:1px solid rgba(255,255,255,.10);
+      font-weight:900;
+      font-size:.78rem;
+      text-align:center;
+      user-select:text;
+      word-break:break-word;
+    }
+    #host-answer-line .lbl{
+      opacity:.7;
+      text-transform:uppercase;
+      letter-spacing:.5px;
+      margin-right:6px;
+    }
+    #host-answer-line .val{
+      color:var(--accent);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      display:inline-block;
+      max-width:100%;
+      vertical-align:bottom;
+    }
 
     /* CATEGORY ABOVE CARD */
     #cat-strip{
@@ -463,7 +495,7 @@
   <!-- LOBBY -->
   <div id="screen-lobby" class="screen active">
     <div class="card-panel">
-      <h1>REVEAL! v4.8.1</h1>
+      <h1>REVEAL! v4.9</h1>
       <div style="display:flex; flex-direction:column; gap:10px; margin-top:16px;">
         <button class="big-btn" onclick="showHostSetup()">HOST GAME</button>
         <div style="opacity:.55; margin:4px 0;">OR</div>
@@ -574,6 +606,12 @@
             <div class="info-cell" id="info-status">
               <div class="info-lbl">STATUS</div>
               <div class="info-val" id="inf-status">WAITING</div>
+            </div>
+
+            <!-- HOST ANSWER (HOST ONLY; shown during adjudication) -->
+            <div id="host-answer-line">
+              <span class="lbl">HOST ANSWER:</span>
+              <span class="val" id="host-answer-val">?</span>
             </div>
           </div>
 
@@ -1127,6 +1165,24 @@
       st.textContent = ap ? `Turn: ${ap}` : "Turn: ?";
     } else {
       st.textContent = "WAITING";
+    }
+
+    /* HOST ANSWER REMINDER (HOST ONLY; during adjudication) */
+    const ha = document.getElementById("host-answer-line");
+    const hav = document.getElementById("host-answer-val");
+    const showHostAnswer = isHost
+      && (gameState.status !== "WIN")
+      && (gameState.phase === "ADJUDICATE")
+      && !!(gameState.ans || "").trim();
+
+    if (ha && hav){
+      if (showHostAnswer){
+        hav.textContent = (gameState.ans || "").trim();
+        ha.style.display = "block";
+      } else {
+        hav.textContent = "?";
+        ha.style.display = "none";
+      }
     }
 
     let last = 0;
