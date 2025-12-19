@@ -1,27 +1,26 @@
 <!DOCTYPE html>
 <html lang="en">
 <!--
-REVEAL! v5.0.3
-(Big Call UI + Host Adjudication Fix + Readable Controls)
+REVEAL! v5.0.4
+(Solid Tiles + Turn Logic Fix + UI Polish)
 
-CHANGES IN THIS VERSION (v5.0.3)
-#5 LAYOUT: Split Header. Timer/Round on Left. Massive "Call Box" on Right.
-#6 UI: Style Picker is now a full-sized button in the footer.
-#6 UI: Room Code is now a large, clickable button in the Host Console.
-#18 HOST: Adjudication Mode now shows a large "VS" card (Guess vs Answer).
-#20 UI: Fixed Grid Z-Index to ensure Players see tiles, not just the image.
+CHANGES IN THIS VERSION (v5.0.4)
+#5 CSS: .c-tile is now 100% Opaque (Solid). No image bleed-through.
+#5 CSS: #game-style-pick width set to auto/min-width to fit text.
+#18 LOGIC: Fixed "Player 2 starts Round 1" bug. Rotation now starts after Round 1.
+#20 UI: Tiles remain solid until explicitly clicked/revealed.
 
 TEST CHECKLIST:
-1. "Current Call" number is huge and detached from the timer.
-2. Host sees "PLAYER GUESSED: [TEXT]" big and bold during judgment.
-3. Style dropdown is easy to click.
-4. Room Code is clearly visible for the Host in the footer.
+1. Tiles are solid color (cannot see image underneath).
+2. Style dropdown text is fully visible.
+3. Round 1 starts with the first player in the list.
+4. Round 2 rotates to the second player.
 -->
 
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
-<title>REVEAL! v5.0.3</title>
+<title>REVEAL! v5.0.4</title>
 
 <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
@@ -44,7 +43,7 @@ TEST CHECKLIST:
   --font-head:'Fredoka One',cursive;
   --font-body:'Nunito',sans-serif;
   --tile-off:#1e293b;
-  --tile-pulse:rgba(250, 204, 21, 0.6);
+  --tile-pulse:rgba(250, 204, 21, 0.8);
 }
 
 *{box-sizing:border-box}
@@ -65,7 +64,11 @@ body{
 .screen.active{transform:translateX(0); z-index:20;}
 
 /* Animations */
-@keyframes pulseTile { 0%{box-shadow:inset 0 0 0 rgba(255,255,255,0);} 50%{box-shadow:inset 0 0 40px var(--tile-pulse);} 100%{box-shadow:inset 0 0 0 rgba(255,255,255,0);} }
+@keyframes pulseTile { 
+  0%{box-shadow:inset 0 0 0 0px var(--tile-pulse);} 
+  50%{box-shadow:inset 0 0 0 4px var(--tile-pulse);} 
+  100%{box-shadow:inset 0 0 0 0px var(--tile-pulse);} 
+}
 @keyframes popIn { 0%{transform:scale(0.5); opacity:0;} 80%{transform:scale(1.1);} 100%{transform:scale(1); opacity:1;} }
 
 /*
@@ -115,20 +118,18 @@ input:focus{border-color:var(--accent);}
   display:grid;
   width:100%; max-width:1200px; height:100%;
   grid-template-columns: 280px 1fr;
-  /* Increased Header Height for the Big Number */
   grid-template-rows: 120px 40px 1fr 100px;
   overflow:hidden;
 }
 
-/* HEADER - SPLIT DESIGN */
+/* HEADER */
 #area-sky{
   grid-column: 1 / -1; grid-row: 1;
   display:flex; justify-content:space-between; align-items:center;
   z-index:50; padding:10px 20px;
-  pointer-events:none; /* Let clicks pass through empty space */
+  pointer-events:none;
 }
 
-/* Timer/Round Pill */
 .stats-pill{
   pointer-events:auto;
   background:var(--glass-bg);
@@ -144,7 +145,6 @@ input:focus{border-color:var(--accent);}
 .sb-lbl{font-size:.65rem; font-weight:900; opacity:.6; text-transform:uppercase; letter-spacing:1px; margin-top:4px;}
 .val-red{color:var(--danger);}
 
-/* MASSIVE Call Box */
 .call-box-container{
   pointer-events:auto;
   display:flex; flex-direction:column; align-items:center;
@@ -219,25 +219,27 @@ input:focus{border-color:var(--accent);}
 }
 #card-img{width:100%; height:100%; object-fit:cover; display:block; position:absolute; inset:0;}
 #card-grid{
-  position:absolute; inset:0; z-index:10; /* Ensure grid is ABOVE image */
+  position:absolute; inset:0; z-index:10;
   display:grid; grid-template-columns:repeat(5,1fr); grid-template-rows:repeat(5,1fr);
   gap:1px;
 }
 .c-tile{
   background:var(--tile-off);
-  color:rgba(255,255,255,0.5);
+  color:#fff; /* Contrast for numbers */
+  opacity: 1; /* SOLID OPAQUE - NO PEEKING */
   display:flex; align-items:center; justify-content:center;
   font-family:var(--font-head); font-size:2.2rem;
   cursor:pointer; user-select:none;
+  transition: opacity 0.2s ease;
 }
 .c-tile.revealed{opacity:0; pointer-events:none;}
 .c-tile.missed{
-  color:var(--accent); border:3px solid var(--accent);
-  background:rgba(0,0,0,0.8);
+  color:var(--accent); 
+  border:4px solid var(--accent); /* Inset border */
   animation:pulseTile 5s infinite;
 }
 
-/* HOST JUDGMENT OVERLAY (VS Card) */
+/* HOST JUDGMENT */
 #host-dashboard-overlay{
   position:absolute; inset:0; z-index:20;
   background:rgba(0,0,0,0.85);
@@ -278,13 +280,14 @@ input:focus{border-color:var(--accent);}
 .btn-success{background:var(--success); color:#fff;}
 .btn-neutral{background:rgba(255,255,255,0.15); color:#fff; box-shadow:none;}
 
-/* Auxiliary Buttons (Style, Code) */
+/* Aux Buttons */
 .aux-btn{
   height:50px; padding:0 16px; border-radius:12px; border:1px solid rgba(255,255,255,0.2);
   background:rgba(0,0,0,0.3); color:#fff; font-weight:900; font-size:0.8rem;
   cursor:pointer; display:flex; align-items:center; gap:6px;
+  min-width: 140px; /* Ensure width for style name */
 }
-select.aux-btn{appearance:none; outline:none;}
+select.aux-btn{appearance:none; outline:none; color:var(--accent);}
 
 #console-input-wrap{display:none; width:100%; max-width:600px; gap:10px;}
 
@@ -323,14 +326,10 @@ select.aux-btn{appearance:none; outline:none;}
 </head>
 <body>
 
-<!--
-========================================
-#7 LOBBY & SETUP
-========================================
--->
+<!-- SETUP SCREENS -->
 <div id="screen-lobby" class="screen active">
   <div class="card-panel">
-    <h1>REVEAL! v5.0.3</h1>
+    <h1>REVEAL! v5.0.4</h1>
     <button class="big-btn" onclick="showHostSetup()">HOST GAME</button>
     <button class="big-btn secondary" onclick="showJoinSetup()">JOIN GAME</button>
   </div>
@@ -376,15 +375,11 @@ select.aux-btn{appearance:none; outline:none;}
   </div>
 </div>
 
-<!--
-========================================
-#8 MAIN GAME APP
-========================================
--->
+<!-- GAME APP -->
 <div id="screen-game" class="screen">
   <div id="app-grid">
     
-    <!-- SKY (Header) -->
+    <!-- SKY -->
     <div id="area-sky">
       <div class="stats-pill">
         <div class="sb-item">
@@ -403,7 +398,7 @@ select.aux-btn{appearance:none; outline:none;}
       </div>
     </div>
 
-    <!-- SIDEBAR (Left) -->
+    <!-- SIDEBAR -->
     <div id="area-sidebar">
       <div class="sb-section" style="flex:1; border-bottom:1px solid rgba(255,255,255,0.1);">
         <h3>PLAYERS</h3>
@@ -427,10 +422,10 @@ select.aux-btn{appearance:none; outline:none;}
       <div id="card-container">
         <img id="card-img" src="">
         
-        <!-- PLAYER GRID (Tiles) -->
+        <!-- PLAYER GRID -->
         <div id="card-grid"></div>
         
-        <!-- HOST JUDGMENT OVERLAY -->
+        <!-- HOST JUDGMENT -->
         <div id="host-dashboard-overlay" style="display:none;">
           <div class="vs-card">
             <div class="vs-lbl">PLAYER GUESS</div>
@@ -447,7 +442,7 @@ select.aux-btn{appearance:none; outline:none;}
     <div id="area-console">
       
       <!-- Style Picker -->
-      <select id="game-style-pick" class="aux-btn" onchange="setMySkin(this.value)" style="width:100px;">
+      <select id="game-style-pick" class="aux-btn" onchange="setMySkin(this.value)">
         <option value="modern_dark">Style...</option>
       </select>
 
@@ -473,9 +468,9 @@ select.aux-btn{appearance:none; outline:none;}
         </div>
       </div>
 
-      <!-- Room Code (Host Only) -->
+      <!-- Room Code -->
       <button id="btn-room-code" class="aux-btn" onclick="copyCode()" style="display:none;">
-        CODE: <span id="disp-code" style="font-size:1rem;"></span>
+        CODE: <span id="disp-code" style="font-size:1rem; margin-left:6px;"></span>
       </button>
 
     </div>
@@ -495,11 +490,7 @@ select.aux-btn{appearance:none; outline:none;}
 
 <div id="toast"></div>
 
-<!--
-========================================
-#9 GAME LOGIC
-========================================
--->
+<!-- LOGIC -->
 <script>
 const SKINS = {
   modern_dark: { label:"Modern Dark", bg:"#0f172a", acc:"#2dd4bf", text:"#fff", tile:"#1e293b" },
@@ -540,7 +531,6 @@ function handleMsg(topic, m){
     gameState = msg.state || gameState;
     if(msg.img) gameImg = msg.img;
     
-    // Reset timer on turn switch
     if(getActivePlayerName() !== oldTurn || (oldPhase!=="TURNS" && gameState.phase==="TURNS")){
       timerSec = 120;
     }
@@ -586,8 +576,15 @@ function hostCall(){
   const pick = avail[Math.floor(Math.random()*avail.length)];
   gameState.revealed.push(pick);
   
+  // FIX: Rotation Logic
   gameState.round++;
-  gameState.roundStartIdx = (gameState.roundStartIdx + 1) % (gameState.players.length || 1);
+  // If Round 1 (first ever), start with index 0. If > 1, rotate.
+  if (gameState.round > 1) {
+    gameState.roundStartIdx = (gameState.roundStartIdx + 1) % (gameState.players.length || 1);
+  } else {
+    gameState.roundStartIdx = 0;
+  }
+  
   gameState.activeIdx = gameState.roundStartIdx;
   gameState.phase = "TURNS";
   gameState.pendingGuess = null;
@@ -637,7 +634,7 @@ function updateUI(){
   if(gameState.phase==="WIN") statusTxt = "GAME OVER";
   document.getElementById("disp-status").textContent = statusTxt;
 
-  // HOST ADJUDICATION UI
+  // HOST JUDGE UI
   if(isHost && gameState.phase==="ADJUDICATE" && gameState.pendingGuess){
     document.getElementById("host-dashboard-overlay").style.display="flex";
     document.getElementById("host-judge-guess").textContent = gameState.pendingGuess.txt;
@@ -648,7 +645,7 @@ function updateUI(){
     if(!isHost) document.getElementById("card-grid").style.display="grid";
   }
 
-  // PLAYERS LIST
+  // PLAYERS
   const pl = document.getElementById("list-players");
   pl.innerHTML = `<div class="player-row is-host"><div class="p-name" style="width:100%;text-align:center;">HOST: ${gameState.host}</div></div>`;
   const ap = getActivePlayerName();
@@ -671,7 +668,7 @@ function updateUI(){
     pl.appendChild(row);
   });
 
-  // MAIN CARD (PLAYER ONLY)
+  // MAIN CARD
   if(!isHost){
     const nums = generateGridFor(myName);
     const grid = document.getElementById("card-grid");
@@ -697,7 +694,6 @@ function updateUI(){
       grid.appendChild(d);
     });
   } else {
-    // HOST: Hide grid, show just image + answer overlay (if judging)
     if(gameState.phase!=="ADJUDICATE") document.getElementById("card-grid").style.display="none"; 
   }
   
@@ -832,10 +828,8 @@ function searchRoom(){
   roomCode = document.getElementById("join-code").value.trim().toUpperCase();
   const btn = document.getElementById("btn-search");
   btn.textContent = "CONNECTING...";
-  
   client = mqtt.connect(BROKER);
   let cT = setTimeout(()=>{ btn.textContent="BLOCKED (VPN?)"; client.end(); },5000);
-  
   client.on("connect",()=>{
     clearTimeout(cT);
     btn.textContent = "CHECKING ROOM...";
