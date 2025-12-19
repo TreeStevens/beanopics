@@ -1,31 +1,28 @@
 <!DOCTYPE html>
 <html lang="en">
 <!--
-REVEAL! v5.0.0
-(Modern "App" Layout + Dealer Rotation Fix + Host/Player Split UI)
+REVEAL! v5.0.1
+(Layout Fixes + Skin Restoration)
 
-CHANGES IN THIS VERSION (v5.0.0)
-#0 ARCHITECTURE: Complete UI rewrite. "Sky/Stage/Wings/Console" layout.
-#6 UI: New "Scoreboard" header (floating glass pill).
-#6 UI: New "Console" footer (big touch targets).
-#16 LOGIC: Fixed Round counter (starts at 0).
-#18 LOGIC: Fixed Dealer Rotation (Active Player correctly rotates each round).
-#20 UI: Host sees "Answer Key" floating on stage.
-#20 UI: Tiles pulse yellow (missed-call) if valid but unclicked.
-#20 UI: Timer goes red/negative in overtime.
+CHANGES IN THIS VERSION (v5.0.1)
+#2 THEMES: Restored full list of 12 SKINS from v4.9 (Neon Grape, Dark Academia, etc).
+#5 LAYOUT: Constrained #app-grid to max-width:1100px and centered it.
+#5 LAYOUT: Fixed "Exploding" layout on wide screens.
+#6 UI: Moved Host Answer display to the bottom Console bar (prevent overlap).
+#6 UI: Increased size of Scoreboard for better visibility.
+#20 UI: Fixed Sidebar widths to be consistent.
 
 TEST CHECKLIST:
-1. "Pre-Game" state shows Round 0.
-2. Host Call -> Round 1 -> Active Player is correct.
-3. Host Call -> Round 2 -> Active Player shifts by +1.
-4. Player Console shows PASS/GUESS only on turn.
-5. Host Console shows CALL or WRONG/RIGHT.
+1. Layout should be centered and tight (not spread to edges).
+2. All original color themes (Skins) should be available.
+3. Host Answer should be visible near the Call button (Host only).
+4. Status text (Category/Waiting) should not overlap anything.
 -->
 
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
-<title>REVEAL! v5.0.0</title>
+<title>REVEAL! v5.0.1</title>
 
 <!--
 ========================================
@@ -42,9 +39,10 @@ TEST CHECKLIST:
 ========================================
 */
 :root{
-  --bg-color:#0f172a; /* Slate 900 - Modern Dark */
-  --glass-bg:rgba(30, 41, 59, 0.7);
-  --glass-border:rgba(255,255,255,0.1);
+  /* Default: Modern Dark */
+  --bg-color:#0f172a;
+  --glass-bg:rgba(30, 41, 59, 0.85);
+  --glass-border:rgba(255,255,255,0.15);
   --accent:#2dd4bf;
   --accent-text:#000;
   --danger:#ef4444;
@@ -55,7 +53,7 @@ TEST CHECKLIST:
   
   --card-bg:#fff;
   --tile-off:#1e293b;
-  --tile-pulse:rgba(250, 204, 21, 0.6); /* Yellow */
+  --tile-pulse:rgba(250, 204, 21, 0.6);
 }
 
 /*
@@ -68,6 +66,8 @@ body{
   margin:0; height:100vh; width:100vw; overflow:hidden;
   background:var(--bg-color); color:var(--text-main);
   font-family:var(--font-body);
+  /* Center the app on large screens */
+  display:flex; align-items:center; justify-content:center;
 }
 
 /* Screen Transitions */
@@ -82,7 +82,6 @@ body{
 
 /* Animations */
 @keyframes pulseRed { 50% { opacity: 0.5; } }
-@keyframes popIn { 0% { transform: scale(0.8); opacity:0; } 100% { transform: scale(1); opacity:1; } }
 @keyframes pulseTile { 0%{box-shadow:inset 0 0 0 rgba(255,255,255,0);} 50%{box-shadow:inset 0 0 40px var(--tile-pulse);} 100%{box-shadow:inset 0 0 0 rgba(255,255,255,0);} }
 
 /*
@@ -108,7 +107,7 @@ label{display:block; font-weight:900; font-size:.7rem; opacity:.7; text-transfor
 input, select{
   width:100%; border:none; border-radius:12px; padding:14px;
   font-family:var(--font-body); font-weight:800; font-size:1.1rem;
-  background:#1e293b; color:#fff; outline:none;
+  background:rgba(0,0,0,0.3); color:#fff; outline:none;
   border:2px solid transparent; transition:border-color .2s;
 }
 input:focus{border-color:var(--accent);}
@@ -126,17 +125,22 @@ input:focus{border-color:var(--accent);}
 
 /*
 ========================================
-#5 APP LAYOUT (GRID SYSTEM)
+#5 APP LAYOUT (GRID SYSTEM) - TIGHT & CENTERED
 ========================================
 */
 #app-grid{
   display:grid;
-  width:100%; height:100%;
-  /* Columns: Wing | Stage | Wing */
-  grid-template-columns: 260px 1fr 260px;
-  /* Rows: Sky | Ticker | Stage | Console */
-  grid-template-rows: 80px 40px 1fr 100px;
+  width:100%; max-width:1200px; /* LOCK MAX WIDTH */
+  height:100%;
+  
+  /* Columns: Wing (260px) | Stage (Flexible) | Wing (260px) */
+  grid-template-columns: 260px minmax(350px, 600px) 260px;
+  
+  /* Rows: Sky(90px) | Ticker(40px) | Stage(Auto) | Console(110px) */
+  grid-template-rows: 90px 40px 1fr 110px;
+  
   overflow:hidden;
+  justify-content:center; /* KEEP CENTERED */
 }
 
 /* THE SKY (Header) */
@@ -144,27 +148,28 @@ input:focus{border-color:var(--accent);}
   grid-column: 1 / -1; grid-row: 1;
   display:flex; justify-content:center; align-items:center;
   z-index:50;
+  padding-top:10px;
 }
 .scoreboard-pill{
   background:var(--glass-bg);
   border:1px solid var(--glass-border);
   backdrop-filter:blur(10px);
-  border-radius:999px;
-  padding:8px 24px;
-  display:flex; align-items:center; gap:24px;
+  border-radius:20px;
+  padding:10px 30px;
+  display:flex; align-items:center; gap:30px;
   box-shadow:0 10px 20px rgba(0,0,0,0.2);
 }
 .sb-item{text-align:center;}
-.sb-val{font-family:var(--font-head); font-size:1.8rem; line-height:1; font-variant-numeric:tabular-nums;}
-.sb-lbl{font-size:.65rem; font-weight:900; opacity:.6; text-transform:uppercase; letter-spacing:1px;}
+.sb-val{font-family:var(--font-head); font-size:2rem; line-height:1; font-variant-numeric:tabular-nums;}
+.sb-lbl{font-size:.65rem; font-weight:900; opacity:.6; text-transform:uppercase; letter-spacing:1px; margin-top:4px;}
 .val-red{color:var(--danger);}
 
 /* Current Call Box */
 .call-box{
   background:#fff; color:#000;
-  border-radius:12px; width:60px; height:60px;
+  border-radius:12px; width:70px; height:70px;
   display:flex; align-items:center; justify-content:center;
-  font-family:var(--font-head); font-size:2.5rem;
+  font-family:var(--font-head); font-size:3rem;
   box-shadow:0 5px 15px rgba(0,0,0,0.3);
 }
 
@@ -176,12 +181,12 @@ input:focus{border-color:var(--accent);}
   z-index:40;
 }
 .tick-cat{opacity:.7;}
-.tick-stat{color:var(--accent);}
+.tick-stat{color:var(--accent); background:rgba(0,0,0,0.3); padding:4px 12px; border-radius:99px;}
 
 /* THE WINGS (Sidebars) */
 .wing{
   grid-row: 3 / span 1;
-  overflow-y:auto; padding:20px;
+  overflow-y:auto; padding:20px 10px;
   display:flex; flex-direction:column; gap:12px;
 }
 #area-left{grid-column: 1;}
@@ -194,11 +199,12 @@ input:focus{border-color:var(--accent);}
 .player-row{
   display:flex; align-items:center; gap:12px;
   padding:8px; border-radius:8px; transition:background .2s;
+  background:rgba(0,0,0,0.2); /* Slight tint for contrast */
 }
-.player-row.active{background:rgba(255,255,255,0.1); border-left:3px solid var(--accent);}
+.player-row.active{background:rgba(255,255,255,0.15); border-left:3px solid var(--accent);}
 .mini-grid{
   display:grid; grid-template-columns:repeat(5,1fr); gap:1px;
-  width:30px; height:30px; opacity:.8;
+  width:30px; height:30px; opacity:.8; flex-shrink:0;
 }
 .mg-cell{background:rgba(255,255,255,0.2); width:100%; height:100%;}
 .mg-cell.hit{background:var(--accent);}
@@ -206,7 +212,8 @@ input:focus{border-color:var(--accent);}
 .badge-you{font-size:.6rem; background:#fff; color:#000; padding:1px 4px; border-radius:4px; margin-left:6px;}
 
 .guess-row{
-  font-size:.9rem; opacity:.8; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.1);
+  font-size:.9rem; opacity:.8; padding:8px; border-bottom:1px solid rgba(255,255,255,0.1);
+  background:rgba(0,0,0,0.2); border-radius:6px;
 }
 
 /* THE STAGE (Center) */
@@ -214,12 +221,14 @@ input:focus{border-color:var(--accent);}
   grid-column: 2; grid-row: 3;
   display:flex; align-items:center; justify-content:center;
   position:relative;
+  padding:20px;
 }
 #card-container{
-  width:100%; max-width:450px; aspect-ratio:1/1;
+  width:100%; max-width:500px; aspect-ratio:1/1;
   background:#fff; border-radius:16px;
   position:relative; overflow:hidden;
   box-shadow:0 30px 60px rgba(0,0,0,0.5);
+  border:4px solid #fff;
 }
 #card-img{width:100%; height:100%; object-fit:cover; display:block;}
 #card-grid{
@@ -229,24 +238,16 @@ input:focus{border-color:var(--accent);}
 }
 .c-tile{
   background:var(--tile-off);
-  color:rgba(255,255,255,0.3);
+  color:rgba(255,255,255,0.4); /* clearer numbers */
   display:flex; align-items:center; justify-content:center;
-  font-family:var(--font-head); font-size:2rem;
+  font-family:var(--font-head); font-size:2.2rem;
   cursor:pointer; user-select:none;
 }
 .c-tile.revealed{opacity:0; pointer-events:none;}
 .c-tile.missed{
-  color:var(--accent); border:2px solid var(--accent);
+  color:var(--accent); border:3px solid var(--accent);
+  background:rgba(0,0,0,0.8);
   animation:pulseTile 1.5s infinite;
-}
-
-/* Host Answer Floating */
-#host-floating-ans{
-  position:absolute; top:-40px; left:50%; transform:translateX(-50%);
-  background:#000; color:var(--accent);
-  padding:4px 12px; border-radius:8px; font-weight:900; font-size:.8rem;
-  border:1px solid var(--accent);
-  display:none;
 }
 
 /* THE CONSOLE (Footer) */
@@ -258,17 +259,29 @@ input:focus{border-color:var(--accent);}
   display:flex; align-items:center; justify-content:center;
   padding:0 20px; gap:16px;
   z-index:60;
+  position:relative;
 }
+/* Host Answer sitting IN the console now */
+#host-floating-ans{
+  position:absolute; top:-30px; left:50%; transform:translateX(-50%);
+  background:#000; color:var(--accent);
+  padding:4px 16px; border-radius:12px; font-weight:900; font-size:.8rem;
+  border:1px solid var(--accent);
+  box-shadow:0 5px 10px rgba(0,0,0,0.3);
+  display:none;
+  white-space:nowrap;
+}
+
 .console-btn{
-  flex:1; max-width:200px; height:60px;
-  border:none; border-radius:12px;
-  font-family:var(--font-head); font-size:1.3rem;
+  flex:1; max-width:240px; height:64px;
+  border:none; border-radius:16px;
+  font-family:var(--font-head); font-size:1.4rem;
   cursor:pointer; box-shadow:0 5px 0 rgba(0,0,0,0.3);
   transition:transform .1s;
 }
 .console-btn:active:not(:disabled){transform:translateY(3px); box-shadow:none;}
 .console-btn:disabled{opacity:.4; cursor:not-allowed; filter:grayscale(1); transform:none; box-shadow:none;}
-.btn-primary{background:var(--accent); color:#000;}
+.btn-primary{background:var(--accent); color:var(--accent-text);}
 .btn-danger{background:var(--danger); color:#fff;}
 .btn-success{background:var(--success); color:#fff;}
 .btn-neutral{background:rgba(255,255,255,0.15); color:#fff; box-shadow:none;}
@@ -288,7 +301,7 @@ input:focus{border-color:var(--accent);}
 @media (max-width: 900px){
   #app-grid{
     grid-template-columns: 1fr;
-    grid-template-rows: 70px 30px 1fr 90px;
+    grid-template-rows: 90px 30px 1fr 100px;
   }
   .wing{display:none;} /* Hide wings on mobile for focus */
   #card-container{max-width:90%;}
@@ -320,7 +333,7 @@ input:focus{border-color:var(--accent);}
 -->
 <div id="screen-lobby" class="screen active">
   <div class="card-panel">
-    <h1>REVEAL! v5.0</h1>
+    <h1>REVEAL! v5.0.1</h1>
     <button class="big-btn" onclick="showHostSetup()">HOST GAME</button>
     <button class="big-btn secondary" onclick="showJoinSetup()">JOIN GAME</button>
   </div>
@@ -404,7 +417,6 @@ input:focus{border-color:var(--accent);}
 
     <!-- STAGE (Card) -->
     <div id="area-stage">
-      <div id="host-floating-ans">ANS: ???</div>
       <div id="card-container">
         <img id="card-img" src="">
         <div id="card-grid"></div>
@@ -419,16 +431,17 @@ input:focus{border-color:var(--accent);}
 
     <!-- CONSOLE (Footer) -->
     <div id="area-console">
+      <div id="host-floating-ans">ANS: ???</div>
       
       <!-- HOST CONTROLS -->
-      <div id="host-controls" style="display:none; width:100%; gap:10px; display:flex;">
+      <div id="host-controls" style="display:none; width:100%; gap:10px; display:flex; justify-content:center;">
         <button id="btn-host-call" class="console-btn btn-primary" onclick="hostCall()">CALL NEXT</button>
         <button id="btn-host-wrong" class="console-btn btn-danger" onclick="hostJudge(false)" style="display:none;">WRONG</button>
         <button id="btn-host-right" class="console-btn btn-success" onclick="hostJudge(true)" style="display:none;">RIGHT</button>
       </div>
 
       <!-- PLAYER CONTROLS -->
-      <div id="player-controls" style="display:none; width:100%; gap:10px; display:flex;">
+      <div id="player-controls" style="display:none; width:100%; gap:10px; display:flex; justify-content:center;">
         <button id="btn-pass" class="console-btn btn-danger" onclick="passTurn()">PASS</button>
         <button id="btn-guess" class="console-btn btn-primary" onclick="openGuess()">GUESS</button>
       </div>
@@ -466,11 +479,23 @@ input:focus{border-color:var(--accent);}
 -->
 <script>
 /* --- CONFIG & STATE --- */
+// RESTORED FULL SKINS LIST
 const SKINS = {
   modern_dark: { label:"Modern Dark", bg:"#0f172a", acc:"#2dd4bf", text:"#fff", tile:"#1e293b" },
   neon_grape: { label:"Neon Grape", bg:"#4c1d95", acc:"#d946ef", text:"#fff", tile:"#312e81" },
-  forest: { label:"Forest", bg:"#064e3b", acc:"#34d399", text:"#ecfdf5", tile:"#065f46" },
+  dark_academia:{ label:"Dark Academia", bg:"#12100e", acc:"#d6ad60", text:"#f5efe6", tile:"#2a2420" },
+  art_deco: { label:"Art Deco", bg:"#0b1220", acc:"#f5c542", text:"#f8fafc", tile:"#1f2937" },
+  midnight_gold:{ label:"Midnight Gold", bg:"#18181b", acc:"#facc15", text:"#f4f4f5", tile:"#27272a" },
+  storm_slate: { label:"Storm Slate", bg:"#0f172a", acc:"#38bdf8", text:"#e2e8f0", tile:"#1f2937" },
+  miami_sunset: { label:"Miami Sunset", bg:"#7c2d12", acc:"#fb7185", text:"#fff7ed", tile:"#451a03" },
+  cryptid_forest:{label:"Cryptid Forest", bg:"#064e3b", acc:"#a7f3d0", text:"#ecfdf5", tile:"#052e16" },
+  killer_carnival:{label:"Killer Carnival",bg:"#3b0764",acc:"#f472b6", text:"#fae8ff", tile:"#1f0933" },
+  blue_ice: { label:"Blue Ice", bg:"#0c4a6e", acc:"#a5f3fc", text:"#ecfeff", tile:"#083344" },
+  lava_lamp: { label:"Lava Lamp", bg:"#7f1d1d", acc:"#fdba74", text:"#fff7ed", tile:"#3f0b0b" },
+  old_paper: { label:"Old Paper", bg:"#1c1917", acc:"#fbbf24", text:"#fef3c7", tile:"#292524" },
+  mono_punch: { label:"Mono Punch", bg:"#111827", acc:"#ffffff", text:"#ffffff", tile:"#374151" }
 };
+
 let mySkinKey = localStorage.getItem("reveal_skin") || "modern_dark";
 
 let myName="", roomCode="", isHost=false, client=null, gameImg=null;
@@ -554,11 +579,8 @@ function hostCall(){
   gameState.revealed.push(pick);
   
   // LOGIC FIX: Dealer Rotation
-  // 1. Increment Round
   gameState.round++;
-  // 2. Rotate the Round Starter
   gameState.roundStartIdx = (gameState.roundStartIdx + 1) % (gameState.players.length || 1);
-  // 3. Set Active Player to Starter
   gameState.activeIdx = gameState.roundStartIdx;
   
   gameState.phase = "TURNS";
@@ -621,7 +643,7 @@ function updateUI(){
   if(gameState.phase==="WIN") statusTxt = "GAME OVER";
   document.getElementById("disp-status").textContent = statusTxt;
 
-  // Answer Key (Host Only)
+  // Answer Key (Host Only) - MOVED TO CONSOLE AREA
   const floatAns = document.getElementById("host-floating-ans");
   if(isHost && gameState.ans){
     floatAns.style.display = "block";
@@ -670,12 +692,6 @@ function updateUI(){
     d.dataset.n = n;
     
     const isCalled = gameState.revealed.includes(n);
-    const isRevealed = d.classList.contains("revealed"); // Logic handled by click usually
-    
-    // Re-apply local reveal state logic? 
-    // Simplified: Check standard DOM class or LocalStorage if we were fancy.
-    // For now: We rely on user clicking. 
-    // BUT we need to check Pulse.
     if(isCalled) d.classList.add("missed"); // Pulse by default if called
     
     d.onclick = function(){
@@ -711,7 +727,6 @@ function updateUI(){
       document.getElementById("btn-host-wrong").style.display="block";
       document.getElementById("btn-host-right").style.display="block";
     } else {
-      // Host waiting during turns
       document.getElementById("btn-host-call").style.display="none";
     }
   } else {
