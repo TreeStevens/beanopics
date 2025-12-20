@@ -1,27 +1,27 @@
 <!DOCTYPE html>
 <html lang="en">
 <!--
-REVEAL! v5.0.5
-(Contrast Fix + Input Resize + Subtle Pulse + Input Clearing)
+REVEAL! v5.0.6
+(Layout Polish + Anti-Cheat Grid + Centered Header)
 
-CHANGES IN THIS VERSION (v5.0.5)
-#4 CSS: Fixed <option> contrast in dropdowns (black text on white).
-#5 CSS: #console-input-wrap is now flex-grow:1 to fill the bar.
-#5 CSS: .c-tile.missed now uses a 5s delay and a subtle inset shadow (no border).
-#5 CSS: Increased contrast on .player-row text.
-#9 LOGIC: sendGuess() and closeGuessUI() now explicitly clear the input field to prevent "mushed" text.
+CHANGES IN THIS VERSION (v5.0.6)
+#5 CSS: #area-sky is now justify-content: center (Header elements grouped in middle).
+#5 CSS: #card-grid gap set to 0. No image bleed-through.
+#5 CSS: .c-tile added 1px solid border (opaque) to maintain grid definition without gaps.
+#5 CSS: .c-tile.missed REMOVED border. Now uses only an inset shadow after 5s delay.
+#5 CSS: Increased .aux-btn min-width to 180px to fit style names.
 
 TEST CHECKLIST:
-1. Guess Input bar is wide and easy to type in.
-2. Dropdown menus are readable (standard contrast).
-3. Missed tiles wait 5 seconds, then glow softly (no hard border).
-4. Sending a guess clears the input box.
+1. Header elements (Timer, Round, Call) are centered together.
+2. Grid tiles touch (no gaps showing image).
+3. "Missed" tile has NO outline. Only a soft glow after 5 seconds.
+4. Style dropdown shows full text.
 -->
 
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
-<title>REVEAL! v5.0.5</title>
+<title>REVEAL! v5.0.6</title>
 
 <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
@@ -44,7 +44,7 @@ TEST CHECKLIST:
   --font-head:'Fredoka One',cursive;
   --font-body:'Nunito',sans-serif;
   --tile-off:#1e293b;
-  --tile-pulse:rgba(250, 204, 21, 0.6);
+  --tile-pulse:rgba(250, 204, 21, 0.5); /* Softer yellow */
 }
 
 *{box-sizing:border-box}
@@ -70,7 +70,7 @@ body{
 /* SUBTLE PULSE: No border, just inner glow, waits 5s */
 @keyframes pulseTile { 
   0%{box-shadow:inset 0 0 0 0px var(--tile-pulse);} 
-  50%{box-shadow:inset 0 0 20px 0px var(--tile-pulse);} 
+  50%{box-shadow:inset 0 0 30px 0px var(--tile-pulse);} 
   100%{box-shadow:inset 0 0 0 0px var(--tile-pulse);} 
 }
 
@@ -132,10 +132,10 @@ option {
   overflow:hidden;
 }
 
-/* HEADER */
+/* HEADER - CENTERED */
 #area-sky{
   grid-column: 1 / -1; grid-row: 1;
-  display:flex; justify-content:space-between; align-items:center;
+  display:flex; justify-content:center; align-items:center; gap: 40px; /* Grouped in middle */
   z-index:50; padding:10px 20px;
   pointer-events:none;
 }
@@ -209,7 +209,7 @@ option {
 .mg-cell.hit{background:var(--accent);}
 .p-name{
   font-weight:900; font-size:.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  color: rgba(255,255,255,0.9); /* Higher contrast */
+  color: rgba(255,255,255,0.9);
 }
 .badge-you{font-size:.6rem; background:#fff; color:#000; padding:1px 4px; border-radius:4px; margin-left:6px;}
 .guess-row{
@@ -234,7 +234,7 @@ option {
 #card-grid{
   position:absolute; inset:0; z-index:10;
   display:grid; grid-template-columns:repeat(5,1fr); grid-template-rows:repeat(5,1fr);
-  gap:1px;
+  gap:0px; /* NO GAP to prevent bleed */
 }
 .c-tile{
   background:var(--tile-off);
@@ -242,12 +242,15 @@ option {
   display:flex; align-items:center; justify-content:center;
   font-family:var(--font-head); font-size:2.2rem;
   cursor:pointer; user-select:none;
+  /* Add explicit border to tile to maintain grid visual without gap */
+  border: 1px solid rgba(255,255,255,0.1);
 }
 .c-tile.revealed{opacity:0; pointer-events:none;}
 /* NEW SUBTLE PULSE LOGIC */
 .c-tile.missed{
+  border: 1px solid rgba(255,255,255,0.1); /* No change to border */
   animation: pulseTile 2s infinite;
-  animation-delay: 5s; /* Wait 5 seconds before starting */
+  animation-delay: 5s;
 }
 
 /* HOST JUDGMENT */
@@ -296,7 +299,7 @@ option {
   height:50px; padding:0 16px; border-radius:12px; border:1px solid rgba(255,255,255,0.2);
   background:rgba(0,0,0,0.3); color:#fff; font-weight:900; font-size:0.8rem;
   cursor:pointer; display:flex; align-items:center; gap:6px;
-  min-width: 140px;
+  min-width: 180px; /* Fixed cut-off */
 }
 select.aux-btn{appearance:none; outline:none; color:var(--accent);}
 
@@ -344,7 +347,7 @@ select.aux-btn{appearance:none; outline:none; color:var(--accent);}
 <!-- SCREENS -->
 <div id="screen-lobby" class="screen active">
   <div class="card-panel">
-    <h1>REVEAL! v5.0.5</h1>
+    <h1>REVEAL! v5.0.6</h1>
     <button class="big-btn" onclick="showHostSetup()">HOST GAME</button>
     <button class="big-btn secondary" onclick="showJoinSetup()">JOIN GAME</button>
   </div>
@@ -625,8 +628,6 @@ function passTurn(){ client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({
 function sendGuess(){
   const txt = document.getElementById("guess-input").value;
   if(txt) client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:"GUESS", from:myName, txt:txt}));
-  
-  // FIX: Clear input to prevent "mushed" text on next guess
   document.getElementById("guess-input").value = "";
   closeGuessUI();
 }
@@ -757,7 +758,6 @@ function openGuess(){
   document.getElementById("guess-input").focus();
 }
 function closeGuessUI(){ 
-  // Explicitly clear input on close to avoid data retention
   document.getElementById("guess-input").value = "";
   updateUI(); 
 }
