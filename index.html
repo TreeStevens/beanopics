@@ -1,26 +1,27 @@
 <!DOCTYPE html>
 <html lang="en">
 <!--
-REVEAL! v5.0.4
-(Solid Tiles + Turn Logic Fix + UI Polish)
+REVEAL! v5.0.5
+(Contrast Fix + Input Resize + Subtle Pulse + Input Clearing)
 
-CHANGES IN THIS VERSION (v5.0.4)
-#5 CSS: .c-tile is now 100% Opaque (Solid). No image bleed-through.
-#5 CSS: #game-style-pick width set to auto/min-width to fit text.
-#18 LOGIC: Fixed "Player 2 starts Round 1" bug. Rotation now starts after Round 1.
-#20 UI: Tiles remain solid until explicitly clicked/revealed.
+CHANGES IN THIS VERSION (v5.0.5)
+#4 CSS: Fixed <option> contrast in dropdowns (black text on white).
+#5 CSS: #console-input-wrap is now flex-grow:1 to fill the bar.
+#5 CSS: .c-tile.missed now uses a 5s delay and a subtle inset shadow (no border).
+#5 CSS: Increased contrast on .player-row text.
+#9 LOGIC: sendGuess() and closeGuessUI() now explicitly clear the input field to prevent "mushed" text.
 
 TEST CHECKLIST:
-1. Tiles are solid color (cannot see image underneath).
-2. Style dropdown text is fully visible.
-3. Round 1 starts with the first player in the list.
-4. Round 2 rotates to the second player.
+1. Guess Input bar is wide and easy to type in.
+2. Dropdown menus are readable (standard contrast).
+3. Missed tiles wait 5 seconds, then glow softly (no hard border).
+4. Sending a guess clears the input box.
 -->
 
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
-<title>REVEAL! v5.0.4</title>
+<title>REVEAL! v5.0.5</title>
 
 <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
@@ -43,7 +44,7 @@ TEST CHECKLIST:
   --font-head:'Fredoka One',cursive;
   --font-body:'Nunito',sans-serif;
   --tile-off:#1e293b;
-  --tile-pulse:rgba(250, 204, 21, 0.8);
+  --tile-pulse:rgba(250, 204, 21, 0.6);
 }
 
 *{box-sizing:border-box}
@@ -64,12 +65,14 @@ body{
 .screen.active{transform:translateX(0); z-index:20;}
 
 /* Animations */
+@keyframes popIn { 0%{transform:scale(0.5); opacity:0;} 80%{transform:scale(1.1);} 100%{transform:scale(1); opacity:1;} }
+
+/* SUBTLE PULSE: No border, just inner glow, waits 5s */
 @keyframes pulseTile { 
   0%{box-shadow:inset 0 0 0 0px var(--tile-pulse);} 
-  50%{box-shadow:inset 0 0 0 4px var(--tile-pulse);} 
+  50%{box-shadow:inset 0 0 20px 0px var(--tile-pulse);} 
   100%{box-shadow:inset 0 0 0 0px var(--tile-pulse);} 
 }
-@keyframes popIn { 0%{transform:scale(0.5); opacity:0;} 80%{transform:scale(1.1);} 100%{transform:scale(1); opacity:1;} }
 
 /*
 ========================================
@@ -90,6 +93,7 @@ h1,h2{margin:0 0 16px 0; font-family:var(--font-head); letter-spacing:0.5px;}
 
 .control-group{margin:16px 0; text-align:left;}
 label{display:block; font-weight:900; font-size:.7rem; opacity:.7; text-transform:uppercase; margin-bottom:6px;}
+
 input, select{
   width:100%; border:none; border-radius:12px; padding:14px;
   font-family:var(--font-body); font-weight:800; font-size:1.1rem;
@@ -97,6 +101,12 @@ input, select{
   border:2px solid transparent; transition:border-color .2s;
 }
 input:focus{border-color:var(--accent);}
+
+/* Force readable options in dropdowns */
+option {
+  background-color: #fff;
+  color: #000;
+}
 
 .big-btn{
   width:100%; border:none; border-radius:14px; padding:16px;
@@ -187,21 +197,24 @@ input:focus{border-color:var(--accent);}
 .player-row{
   display:flex; align-items:center; gap:12px;
   padding:8px; border-radius:8px; margin-bottom:4px;
-  background:rgba(255,255,255,0.05); transition:background .2s;
+  background:rgba(255,255,255,0.08); transition:background .2s;
 }
 .player-row.is-host{background:transparent; border:1px dashed rgba(255,255,255,0.15);}
-.player-row.active{background:rgba(255,255,255,0.15); border-left:4px solid var(--accent);}
+.player-row.active{background:rgba(255,255,255,0.2); border-left:4px solid var(--accent);}
 .mini-grid{
   display:grid; grid-template-columns:repeat(5,1fr); gap:1px;
   width:25px; height:25px; opacity:.8; flex-shrink:0;
 }
 .mg-cell{background:rgba(255,255,255,0.2); width:100%; height:100%;}
 .mg-cell.hit{background:var(--accent);}
-.p-name{font-weight:800; font-size:.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.p-name{
+  font-weight:900; font-size:.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  color: rgba(255,255,255,0.9); /* Higher contrast */
+}
 .badge-you{font-size:.6rem; background:#fff; color:#000; padding:1px 4px; border-radius:4px; margin-left:6px;}
 .guess-row{
-  font-size:.85rem; opacity:.8; padding:8px; border-bottom:1px solid rgba(255,255,255,0.1);
-  background:rgba(0,0,0,0.2); border-radius:6px; margin-bottom:4px;
+  font-size:.85rem; opacity:.9; padding:8px; border-bottom:1px solid rgba(255,255,255,0.1);
+  background:rgba(0,0,0,0.3); border-radius:6px; margin-bottom:4px;
 }
 .guess-rnd{font-size:.65rem; opacity:.6; float:right; margin-top:2px;}
 
@@ -225,18 +238,16 @@ input:focus{border-color:var(--accent);}
 }
 .c-tile{
   background:var(--tile-off);
-  color:#fff; /* Contrast for numbers */
-  opacity: 1; /* SOLID OPAQUE - NO PEEKING */
+  color:rgba(255,255,255,0.5);
   display:flex; align-items:center; justify-content:center;
   font-family:var(--font-head); font-size:2.2rem;
   cursor:pointer; user-select:none;
-  transition: opacity 0.2s ease;
 }
 .c-tile.revealed{opacity:0; pointer-events:none;}
+/* NEW SUBTLE PULSE LOGIC */
 .c-tile.missed{
-  color:var(--accent); 
-  border:4px solid var(--accent); /* Inset border */
-  animation:pulseTile 5s infinite;
+  animation: pulseTile 2s infinite;
+  animation-delay: 5s; /* Wait 5 seconds before starting */
 }
 
 /* HOST JUDGMENT */
@@ -265,7 +276,7 @@ input:focus{border-color:var(--accent);}
   padding:0 20px; gap:16px;
   z-index:60;
 }
-.console-center{flex:1; display:flex; justify-content:center; gap:10px;}
+.console-center{flex:1; display:flex; justify-content:center; gap:10px; height:100%; align-items:center;}
 .console-btn{
   flex:1; max-width:240px; height:64px;
   border:none; border-radius:16px;
@@ -285,11 +296,15 @@ input:focus{border-color:var(--accent);}
   height:50px; padding:0 16px; border-radius:12px; border:1px solid rgba(255,255,255,0.2);
   background:rgba(0,0,0,0.3); color:#fff; font-weight:900; font-size:0.8rem;
   cursor:pointer; display:flex; align-items:center; gap:6px;
-  min-width: 140px; /* Ensure width for style name */
+  min-width: 140px;
 }
 select.aux-btn{appearance:none; outline:none; color:var(--accent);}
 
-#console-input-wrap{display:none; width:100%; max-width:600px; gap:10px;}
+/* WIDE INPUT BAR */
+#console-input-wrap{
+  display:none; width:100%; flex:1; gap:10px; max-width:800px;
+}
+#guess-input{flex:1; height:64px; font-size:1.2rem; background:rgba(0,0,0,0.5);}
 
 /* RESPONSIVE */
 @media (max-width: 900px){
@@ -326,10 +341,10 @@ select.aux-btn{appearance:none; outline:none; color:var(--accent);}
 </head>
 <body>
 
-<!-- SETUP SCREENS -->
+<!-- SCREENS -->
 <div id="screen-lobby" class="screen active">
   <div class="card-panel">
-    <h1>REVEAL! v5.0.4</h1>
+    <h1>REVEAL! v5.0.5</h1>
     <button class="big-btn" onclick="showHostSetup()">HOST GAME</button>
     <button class="big-btn secondary" onclick="showJoinSetup()">JOIN GAME</button>
   </div>
@@ -375,7 +390,7 @@ select.aux-btn{appearance:none; outline:none; color:var(--accent);}
   </div>
 </div>
 
-<!-- GAME APP -->
+<!-- GAME -->
 <div id="screen-game" class="screen">
   <div id="app-grid">
     
@@ -421,10 +436,7 @@ select.aux-btn{appearance:none; outline:none; color:var(--accent);}
     <div id="area-stage">
       <div id="card-container">
         <img id="card-img" src="">
-        
-        <!-- PLAYER GRID -->
         <div id="card-grid"></div>
-        
         <!-- HOST JUDGMENT -->
         <div id="host-dashboard-overlay" style="display:none;">
           <div class="vs-card">
@@ -440,8 +452,6 @@ select.aux-btn{appearance:none; outline:none; color:var(--accent);}
 
     <!-- CONSOLE -->
     <div id="area-console">
-      
-      <!-- Style Picker -->
       <select id="game-style-pick" class="aux-btn" onchange="setMySkin(this.value)">
         <option value="modern_dark">Style...</option>
       </select>
@@ -468,17 +478,15 @@ select.aux-btn{appearance:none; outline:none; color:var(--accent);}
         </div>
       </div>
 
-      <!-- Room Code -->
       <button id="btn-room-code" class="aux-btn" onclick="copyCode()" style="display:none;">
         CODE: <span id="disp-code" style="font-size:1rem; margin-left:6px;"></span>
       </button>
-
     </div>
 
   </div>
 </div>
 
-<!-- WIN OVERLAY -->
+<!-- WIN -->
 <div id="win-overlay">
   <div id="win-card">
     <h1 id="win-title" style="color:#000;">WINNER!</h1>
@@ -576,9 +584,7 @@ function hostCall(){
   const pick = avail[Math.floor(Math.random()*avail.length)];
   gameState.revealed.push(pick);
   
-  // FIX: Rotation Logic
   gameState.round++;
-  // If Round 1 (first ever), start with index 0. If > 1, rotate.
   if (gameState.round > 1) {
     gameState.roundStartIdx = (gameState.roundStartIdx + 1) % (gameState.players.length || 1);
   } else {
@@ -619,6 +625,9 @@ function passTurn(){ client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({
 function sendGuess(){
   const txt = document.getElementById("guess-input").value;
   if(txt) client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:"GUESS", from:myName, txt:txt}));
+  
+  // FIX: Clear input to prevent "mushed" text on next guess
+  document.getElementById("guess-input").value = "";
   closeGuessUI();
 }
 
@@ -634,7 +643,6 @@ function updateUI(){
   if(gameState.phase==="WIN") statusTxt = "GAME OVER";
   document.getElementById("disp-status").textContent = statusTxt;
 
-  // HOST JUDGE UI
   if(isHost && gameState.phase==="ADJUDICATE" && gameState.pendingGuess){
     document.getElementById("host-dashboard-overlay").style.display="flex";
     document.getElementById("host-judge-guess").textContent = gameState.pendingGuess.txt;
@@ -645,7 +653,6 @@ function updateUI(){
     if(!isHost) document.getElementById("card-grid").style.display="grid";
   }
 
-  // PLAYERS
   const pl = document.getElementById("list-players");
   pl.innerHTML = `<div class="player-row is-host"><div class="p-name" style="width:100%;text-align:center;">HOST: ${gameState.host}</div></div>`;
   const ap = getActivePlayerName();
@@ -668,7 +675,6 @@ function updateUI(){
     pl.appendChild(row);
   });
 
-  // MAIN CARD
   if(!isHost){
     const nums = generateGridFor(myName);
     const grid = document.getElementById("card-grid");
@@ -699,7 +705,6 @@ function updateUI(){
   
   if(gameImg) document.getElementById("card-img").src = gameImg;
 
-  // CONSOLE
   const areaConsole = document.getElementById("area-console");
   const hostCtrl = document.getElementById("host-controls");
   const plyrCtrl = document.getElementById("player-controls");
@@ -751,7 +756,11 @@ function openGuess(){
   document.getElementById("console-input-wrap").style.display="flex"; 
   document.getElementById("guess-input").focus();
 }
-function closeGuessUI(){ updateUI(); }
+function closeGuessUI(){ 
+  // Explicitly clear input on close to avoid data retention
+  document.getElementById("guess-input").value = "";
+  updateUI(); 
+}
 function copyCode(){
   navigator.clipboard.writeText(roomCode);
   const t = document.getElementById("toast");
