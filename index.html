@@ -1,27 +1,25 @@
 <!DOCTYPE html>
 <html lang="en">
 <!--
-REVEAL! v5.0.6
-(Layout Polish + Anti-Cheat Grid + Centered Header)
+REVEAL! v5.0.8
+(Functional Fixes: Player Input & Host Timer)
 
-CHANGES IN THIS VERSION (v5.0.6)
-#5 CSS: #area-sky is now justify-content: center (Header elements grouped in middle).
-#5 CSS: #card-grid gap set to 0. No image bleed-through.
-#5 CSS: .c-tile added 1px solid border (opaque) to maintain grid definition without gaps.
-#5 CSS: .c-tile.missed REMOVED border. Now uses only an inset shadow after 5s delay.
-#5 CSS: Increased .aux-btn min-width to 180px to fit style names.
+CHANGES IN THIS VERSION (v5.0.8)
+#19 LOGIC: Added `isInputOpen` flag to prevent updateUI from auto-closing the guess box.
+#19 LOGIC: Player Guess button now reliably stays open until Send or Close.
+#18 LOGIC: Host Timer now resets explicitly in hostCall() and advanceTurn().
+#5 CSS: Maintained all layout fixes from v5.0.7.
 
 TEST CHECKLIST:
-1. Header elements (Timer, Round, Call) are centered together.
-2. Grid tiles touch (no gaps showing image).
-3. "Missed" tile has NO outline. Only a soft glow after 5 seconds.
-4. Style dropdown shows full text.
+1. Player clicks GUESS -> Input box appears and STAYS there.
+2. Host clicks CALL NEXT -> Host's timer resets to 2:00 immediately.
+3. Host clicks WRONG -> Turn passes, timer resets to 2:00 immediately.
 -->
 
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
-<title>REVEAL! v5.0.6</title>
+<title>REVEAL! v5.0.8</title>
 
 <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
@@ -44,7 +42,7 @@ TEST CHECKLIST:
   --font-head:'Fredoka One',cursive;
   --font-body:'Nunito',sans-serif;
   --tile-off:#1e293b;
-  --tile-pulse:rgba(250, 204, 21, 0.5); /* Softer yellow */
+  --tile-pulse:rgba(250, 204, 21, 0.5);
 }
 
 *{box-sizing:border-box}
@@ -66,8 +64,6 @@ body{
 
 /* Animations */
 @keyframes popIn { 0%{transform:scale(0.5); opacity:0;} 80%{transform:scale(1.1);} 100%{transform:scale(1); opacity:1;} }
-
-/* SUBTLE PULSE: No border, just inner glow, waits 5s */
 @keyframes pulseTile { 
   0%{box-shadow:inset 0 0 0 0px var(--tile-pulse);} 
   50%{box-shadow:inset 0 0 30px 0px var(--tile-pulse);} 
@@ -101,12 +97,7 @@ input, select{
   border:2px solid transparent; transition:border-color .2s;
 }
 input:focus{border-color:var(--accent);}
-
-/* Force readable options in dropdowns */
-option {
-  background-color: #fff;
-  color: #000;
-}
+option { background-color: #fff; color: #000; }
 
 .big-btn{
   width:100%; border:none; border-radius:14px; padding:16px;
@@ -132,10 +123,10 @@ option {
   overflow:hidden;
 }
 
-/* HEADER - CENTERED */
+/* HEADER */
 #area-sky{
   grid-column: 1 / -1; grid-row: 1;
-  display:flex; justify-content:center; align-items:center; gap: 40px; /* Grouped in middle */
+  display:flex; justify-content:center; align-items:center; gap: 40px;
   z-index:50; padding:10px 20px;
   pointer-events:none;
 }
@@ -234,7 +225,7 @@ option {
 #card-grid{
   position:absolute; inset:0; z-index:10;
   display:grid; grid-template-columns:repeat(5,1fr); grid-template-rows:repeat(5,1fr);
-  gap:0px; /* NO GAP to prevent bleed */
+  gap:0px;
 }
 .c-tile{
   background:var(--tile-off);
@@ -242,13 +233,10 @@ option {
   display:flex; align-items:center; justify-content:center;
   font-family:var(--font-head); font-size:2.2rem;
   cursor:pointer; user-select:none;
-  /* Add explicit border to tile to maintain grid visual without gap */
   border: 1px solid rgba(255,255,255,0.1);
 }
 .c-tile.revealed{opacity:0; pointer-events:none;}
-/* NEW SUBTLE PULSE LOGIC */
 .c-tile.missed{
-  border: 1px solid rgba(255,255,255,0.1); /* No change to border */
   animation: pulseTile 2s infinite;
   animation-delay: 5s;
 }
@@ -294,12 +282,11 @@ option {
 .btn-success{background:var(--success); color:#fff;}
 .btn-neutral{background:rgba(255,255,255,0.15); color:#fff; box-shadow:none;}
 
-/* Aux Buttons */
 .aux-btn{
   height:50px; padding:0 16px; border-radius:12px; border:1px solid rgba(255,255,255,0.2);
   background:rgba(0,0,0,0.3); color:#fff; font-weight:900; font-size:0.8rem;
   cursor:pointer; display:flex; align-items:center; gap:6px;
-  min-width: 180px; /* Fixed cut-off */
+  min-width: 180px;
 }
 select.aux-btn{appearance:none; outline:none; color:var(--accent);}
 
@@ -307,7 +294,10 @@ select.aux-btn{appearance:none; outline:none; color:var(--accent);}
 #console-input-wrap{
   display:none; width:100%; flex:1; gap:10px; max-width:800px;
 }
-#guess-input{flex:1; height:64px; font-size:1.2rem; background:rgba(0,0,0,0.5);}
+#guess-input{
+  flex:1; height:64px; font-size:1.5rem; background:rgba(0,0,0,0.5); 
+  border:2px solid rgba(255,255,255,0.2);
+}
 
 /* RESPONSIVE */
 @media (max-width: 900px){
@@ -347,7 +337,7 @@ select.aux-btn{appearance:none; outline:none; color:var(--accent);}
 <!-- SCREENS -->
 <div id="screen-lobby" class="screen active">
   <div class="card-panel">
-    <h1>REVEAL! v5.0.6</h1>
+    <h1>REVEAL! v5.0.8</h1>
     <button class="big-btn" onclick="showHostSetup()">HOST GAME</button>
     <button class="big-btn secondary" onclick="showJoinSetup()">JOIN GAME</button>
   </div>
@@ -529,6 +519,7 @@ let gameState = {
 };
 let myClicked = new Set();
 let timerSec=120;
+let isInputOpen = false; // NEW: Track local input state
 const TURN_CHIME = new Audio("chime.mp3"); 
 
 const BROKER = "wss://broker.emqx.io:8084/mqtt";
@@ -542,6 +533,7 @@ function handleMsg(topic, m){
     gameState = msg.state || gameState;
     if(msg.img) gameImg = msg.img;
     
+    // Reset timer on turn switch
     if(getActivePlayerName() !== oldTurn || (oldPhase!=="TURNS" && gameState.phase==="TURNS")){
       timerSec = 120;
     }
@@ -597,6 +589,7 @@ function hostCall(){
   gameState.activeIdx = gameState.roundStartIdx;
   gameState.phase = "TURNS";
   gameState.pendingGuess = null;
+  timerSec = 120; // Explicit Host Reset
   sendState();
 }
 
@@ -622,6 +615,7 @@ function hostJudge(isRight){
 function advanceTurn(){
   gameState.activeIdx = (gameState.activeIdx + 1) % gameState.players.length;
   if(gameState.activeIdx === gameState.roundStartIdx) gameState.phase = "CALL";
+  timerSec = 120; // Explicit Host Reset
 }
 
 function passTurn(){ client.publish(`${TOPIC_PRE}/${roomCode}`, JSON.stringify({type:"PASS", from:myName})); closeGuessUI(); }
@@ -715,6 +709,10 @@ function updateUI(){
   plyrCtrl.style.display = "none";
   inputCtrl.style.display = "none";
 
+  // Hide side controls if input is active
+  document.getElementById("game-style-pick").style.display = isInputOpen ? "none" : "block";
+  document.getElementById("btn-room-code").style.display = "none"; 
+
   if(isHost){
     hostCtrl.style.display = "flex";
     if(gameState.phase==="CALL") {
@@ -728,10 +726,12 @@ function updateUI(){
     } else {
       document.getElementById("btn-host-call").style.display="none";
     }
-    document.getElementById("btn-room-code").style.display="flex";
+    if(!isInputOpen) document.getElementById("btn-room-code").style.display="flex";
   } else {
-    document.getElementById("btn-room-code").style.display="none";
-    if(gameState.phase==="TURNS" && isActivePlayer(myName)){
+    // Player Console Logic
+    if(isInputOpen){
+      inputCtrl.style.display = "flex";
+    } else if(gameState.phase==="TURNS" && isActivePlayer(myName)){
       plyrCtrl.style.display = "flex";
     }
   }
@@ -753,11 +753,13 @@ function updateUI(){
 function isActivePlayer(n){ return gameState.players[gameState.activeIdx]?.name === n; }
 function getActivePlayerName(){ return gameState.players[gameState.activeIdx]?.name || ""; }
 function openGuess(){ 
-  document.getElementById("player-controls").style.display="none"; 
-  document.getElementById("console-input-wrap").style.display="flex"; 
-  document.getElementById("guess-input").focus();
+  isInputOpen = true; 
+  updateUI(); 
+  // Focus after update
+  setTimeout(()=>document.getElementById("guess-input").focus(), 10);
 }
 function closeGuessUI(){ 
+  isInputOpen = false;
   document.getElementById("guess-input").value = "";
   updateUI(); 
 }
